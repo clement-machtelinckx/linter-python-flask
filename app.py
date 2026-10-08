@@ -41,8 +41,8 @@ def db_test():
             return jsonify({"db_connection": "successful"})
         else:
             return jsonify({"db_connection": "failed"}), 500
-    except Exception as e:
-        return jsonify({"db_connection": "failed", "error": str(e)}), 500
+    except Exception:
+        return jsonify({"db_connection": "failed"}), 500
     
 
 if __name__ == "__main__":
