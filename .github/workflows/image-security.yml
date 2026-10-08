@@ -34,12 +34,12 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/image-tools"
           cd "$RUNNER_TEMP/image-tools"
-          curl -fsSLO "https://github.com/wagoodman/dive/releases/download/v${DIVE_VERSION}/dive_${DIVE_VERSION}_linux_amd64.tar.gz"
-          curl -fsSLO "https://github.com/wagoodman/dive/releases/download/v${DIVE_VERSION}/dive_${DIVE_VERSION}_checksums.txt"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/wagoodman/dive/releases/download/v${DIVE_VERSION}/dive_${DIVE_VERSION}_linux_amd64.tar.gz"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/wagoodman/dive/releases/download/v${DIVE_VERSION}/dive_${DIVE_VERSION}_checksums.txt"
           sha256sum --check --ignore-missing "dive_${DIVE_VERSION}_checksums.txt"
           tar -xzf "dive_${DIVE_VERSION}_linux_amd64.tar.gz" dive
-          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"
           sha256sum --check --ignore-missing "trivy_${TRIVY_VERSION}_checksums.txt"
           tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy
           echo "$RUNNER_TEMP/image-tools" >> "$GITHUB_PATH"
