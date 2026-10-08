@@ -293,8 +293,10 @@ An unresolved requirement is not counted as PASS, even when its issue is closed.
 **Evidenced assignment coverage: 19 / 19**. Final merge approval remains separate
 from this technical coverage and belongs to
 [issue #14](https://github.com/clement-machtelinckx/linter-python-flask/issues/14)
-with the final cross-review. Sonar reports `NONE` on main (GitHub check neutral);
-this is not claimed as a passing Quality Gate. Final review is pending.
+with the final cross-review. [Sonar PR #33](https://sonarcloud.io/dashboard?id=clement-machtelinckx_linter-python-flask&pullRequest=33)
+reports Quality Gate OK and Security Rating A for `c30a334`; the GitHub check succeeded.
+The historical main status `NONE` (check neutral) is not claimed as a passing gate.
+Final review and checks on the last documentation commit are still required.
 
 ### Pair contributions
 
@@ -304,4 +306,4 @@ Benoît's merged contributions: PostgreSQL hardening (#18), Flask quality/tests 
 exec healthcheck (#24), actual-image Compose integration (#26), validated artifact
 integration (#27). This report is prepared by Benoît for Clément's review.
 [FINAL-CHECK.md](FINAL-CHECK.md) records the final audit, verified publication and
-remaining Sonar/review conditions. Final compliance sign-off remains pending.
+remaining review/check conditions. Final compliance sign-off remains pending.

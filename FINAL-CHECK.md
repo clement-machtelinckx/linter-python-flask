@@ -24,7 +24,7 @@ Artefact sécurité : `image-security-83659230ccc2d74b514aaabf62f381cd468dcdb4` 
 | HTTP /health, /dbtest et PostgreSQL réel | PASS | Deux conteneurs sains ; réponses attendues ; Pytest : 1 PASS, 5 deselected ; nettoyage réussi |
 | CI push/PR, actions SHA, permissions minimales | PASS | Workflows épinglés ; contents: read ; packages: write limité au job de publication ; EC2 manuel uniquement |
 | GitHub Actions sur le main audité | PASS | Les deux runs ci-dessus et tous leurs jobs obligatoires ont réussi |
-| Quality Gate SonarQube | UNKNOWN | [Sonar main](https://sonarcloud.io/dashboard?id=clement-machtelinckx_linter-python-flask&branch=main) : check GitHub neutral ; API project_status = NONE, aucun PASS confirmé |
+| Quality Gate SonarQube de la PR | PASS | [Sonar PR #33](https://sonarcloud.io/dashboard?id=clement-machtelinckx_linter-python-flask&pullRequest=33) : OK, Security Rating A ; check GitHub success pour c30a334. Sur main, le statut historique NONE/check neutral ne constitue pas un PASS |
 | Release SemVer et image GHCR publique | PASS | [Release v1.0.0](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37795286678) réussie pour le même SHA ; page publique HTTP 200 ; manifeste et pull anonymes vérifiés |
 | README avec preuves publiques complètes | PASS | Sept sections, tableau historique conservé, preuves actuelles, package public, commandes exactes et digest vérifié |
 
@@ -34,7 +34,7 @@ identique à la métadonnée du scan. Pull avec une configuration Docker vide : 
 imports Flask/psycopg2, UID 65532, absence des modules pip/pytest/flake8/setuptools/wheel : code 0.
 La publication a eu lieu pendant l'audit, dans une autre session ; cet audit n'a créé aucun tag.
 
-**Fusion finale suspendue : Quality Gate Sonar et revue finale restent à confirmer.**
+**Fusion finale suspendue : attendre les contrôles du dernier commit et la revue de Benoît.**
 La PR #30 et l'issue #14 étaient déjà fusionnée/fermée avant cette reprise ; leurs
 statuts ne remplacent pas ces conditions. Les scans et l'intégration existants sont
 réutilisés car la configuration du registre correspond exactement à l'image testée.
