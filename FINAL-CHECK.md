@@ -25,12 +25,16 @@ Artefact sécurité : `image-security-83659230ccc2d74b514aaabf62f381cd468dcdb4` 
 | CI push/PR, actions SHA, permissions minimales | PASS | Workflows épinglés ; contents: read ; packages: write limité au job de publication ; EC2 manuel uniquement |
 | GitHub Actions sur le main audité | PASS | Les deux runs ci-dessus et tous leurs jobs obligatoires ont réussi |
 | Quality Gate SonarQube | UNKNOWN | [Sonar main](https://sonarcloud.io/dashboard?id=clement-machtelinckx_linter-python-flask&branch=main) : check GitHub neutral ; API project_status = NONE, aucun PASS confirmé |
-| Release SemVer et image GHCR publique | UNKNOWN | Aucun tag Git ni publication réussie constaté ; page package anonyme HTTP 404 ; [#31](https://github.com/clement-machtelinckx/linter-python-flask/issues/31) reste ouvert |
-| README avec preuves publiques complètes | FAIL | Sections techniques et tableau présents ; tag, docker pull exact, digest registre et lien public encore manquants ; [#13](https://github.com/clement-machtelinckx/linter-python-flask/issues/13) reste ouvert |
+| Release SemVer et image GHCR publique | PASS | [Release v1.0.0](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37795286678) réussie pour le même SHA ; page publique HTTP 200 ; manifeste et pull anonymes vérifiés |
+| README avec preuves publiques complètes | PASS | Sept sections, tableau historique conservé, preuves actuelles, package public, commandes exactes et digest vérifié |
 
-**Rendu incomplet : aucune nouvelle fusion n'est autorisée par les conditions finales.**
-La PR #30 et l'issue #14 étaient déjà fusionnée/fermée avant cette reprise ; cela ne
-prouve pas la conformité globale. Ne pas confondre l'identifiant Docker de l'image
-avec un digest GHCR. Aucun tag ni aucune publication n'a été créé pendant cet audit.
-Restent : release explicitement autorisée, visibilité publique et pull anonyme vérifiés,
-mise à jour des preuves du README, confirmation Sonar et revue finale du binôme.
+Digest GHCR vérifié : `sha256:63b1a427ca8a14ae0d81031085ab3bbd9aa7129c08b733653c384185cd33cb3c`.
+Configuration image : `sha256:1df3dc6cd2e69ae022e7bc92d5f964bd9b270cf2717a55daef772483a4d4f30d`,
+identique à la métadonnée du scan. Pull avec une configuration Docker vide : code 0 ;
+imports Flask/psycopg2, UID 65532, absence des modules pip/pytest/flake8/setuptools/wheel : code 0.
+La publication a eu lieu pendant l'audit, dans une autre session ; cet audit n'a créé aucun tag.
+
+**Fusion finale suspendue : Quality Gate Sonar et revue finale restent à confirmer.**
+La PR #30 et l'issue #14 étaient déjà fusionnée/fermée avant cette reprise ; leurs
+statuts ne remplacent pas ces conditions. Les scans et l'intégration existants sont
+réutilisés car la configuration du registre correspond exactement à l'image testée.
