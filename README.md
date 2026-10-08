@@ -346,3 +346,8 @@ integration (#27). This report is prepared by Benoît for Clément's review.
 Clément completed CI corrections (#30), the authorized `v1.0.0` publication and
 anonymous published-image verification, and updated these final README proofs for
 [issue #31](https://github.com/clement-machtelinckx/linter-python-flask/issues/31).
+
+[FINAL-CHECK.md](FINAL-CHECK.md) records the final requirement checks and merge conditions.
+[Sonar PR #33](https://sonarcloud.io/dashboard?id=clement-machtelinckx_linter-python-flask&pullRequest=33)
+passed its Quality Gate with Security Rating A; the historical neutral main check
+is kept separate. Final merge still requires the latest CI results and Benoît's review.
