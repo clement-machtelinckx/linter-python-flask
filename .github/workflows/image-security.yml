@@ -11,7 +11,11 @@ permissions:
   contents: read
 
 jobs:
+  quality:
+    uses: ./.github/workflows/quality.yml
+
   image-security:
+    needs: quality
     runs-on: ubuntu-latest
     defaults:
       run:
