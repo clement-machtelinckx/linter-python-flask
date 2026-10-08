@@ -100,3 +100,9 @@ jobs:
           path: ${{ runner.temp }}/image-security/
           retention-days: 7
           overwrite: true
+
+  integration:
+    needs: image-security
+    uses: ./.github/workflows/multi-container.yml
+    with:
+      image-artifact: validated-image-${{ github.sha }}
