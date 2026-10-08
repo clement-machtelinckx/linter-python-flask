@@ -3,9 +3,8 @@
 Master 2 graded practical assignment, Benoît Bremaud and Clément Machtelinckx.
 This report follows sections A-G and the seven reporting sections of the assignment.
 Snapshot: **2026-10-08**, main commit
-`b9ebfaa8b791105d111dc71cb27393820aa244df` (merged [PR #28](https://github.com/clement-machtelinckx/linter-python-flask/pull/28)).
-The measured image and detailed scan evidence below belong to the preceding tested
-main commit `3c74e98c7b5b6504cfb4217c9b8296358bb0ffec`; the release merge changes workflows only.
+`83659230ccc2d74b514aaabf62f381cd468dcdb4` (merged [PR #30](https://github.com/clement-machtelinckx/linter-python-flask/pull/30)).
+The final image scan and integration evidence below belong to this same main commit.
 The compliance matrix is provisional until the release and final cross-review are complete.
 
 ## 1. Public GHCR packages and execution
@@ -39,7 +38,7 @@ and Dive 0.13.1. MB means decimal megabytes; image size is Docker's `.Size`,
 not registry download size. Findings count package/CVE occurrences; distinct CVE IDs
 are shown separately to avoid confusing the two metrics.
 
-| API metric | Before: retained baseline | After: validated main image |
+| API metric | Before: retained baseline | After: retained validated main image |
 | --- | --- | --- |
 | Docker image size | 148.28 MB (148,283,873 bytes) | 73.82 MB (73,817,990 bytes) |
 | Execution user | UID 0 | UID/GID 65532:65532 |
@@ -59,11 +58,15 @@ identical to the source at `b9c1bf2`. Its manifest contains Flask 2.3.2, Werkzeu
 of a retained baseline**, not a reconstructed claim about every historical deployment.
 The original `python:3.10-slim` tag and unpinned dependency prevent exact historical reproduction.
 
-Final image ID: `sha256:80dc0218bfcf8ec7acddf501b336654db5d7b9250915451ae8fc2975a78cfbbd`.
-It was downloaded from the validated-image artifact of
+Measured final image ID: `sha256:80dc0218bfcf8ec7acddf501b336654db5d7b9250915451ae8fc2975a78cfbbd`.
+The size and runtime inspection above refer to the retained image from
 [main run 37785679351](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37785679351),
-then its archive checksum, source commit and runtime were checked locally.
-The size reduction is approximately 50.22% for these two measured images.
+commit `3c74e98c7b5b6504cfb4217c9b8296358bb0ffec`; its archive checksum,
+source commit and runtime were checked locally. The measured size reduction is 50.22%.
+The Dockerfile and runtime manifest have not changed since that inspection.
+The latest [main security/integration run 37789598329](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37789598329)
+confirms the same Dive score and vulnerability counts on commit `8365923`;
+its image ID is `sha256:1df3dc6cd2e69ae022e7bc92d5f964bd9b270cf2717a55daef772483a4d4f30d`.
 The full final report includes 74 MEDIUM, 53 LOW and two UNKNOWN findings alongside
 30 HIGH findings. A passing security threshold **does not mean zero system CVEs**.
 
@@ -184,14 +187,10 @@ image ID. The reusable [integration workflow](.github/workflows/multi-container.
 is chained with `needs: image-security`, verifies those values, loads the image,
 and prevents API rebuild/pull. Its PostgreSQL digest remains pullable on a fresh runner.
 
-Two verified gaps remain at this snapshot:
-
-- Quality and image-security are independent workflows: lint is blocking within
-  quality, but does not yet prevent the image build from starting concurrently.
-  The assignment requires quality before containerization.
-- Legacy deployment workflows
-  still contain actions pinned by tags. The assignment's all-actions SHA rule
-  cannot be claimed for the whole `.github/workflows` directory.
+[PR #30](https://github.com/clement-machtelinckx/linter-python-flask/pull/30) resolved
+both previously reported CI gaps: image-security now requires the reusable quality
+job before building, and all external actions, including legacy deployment workflows,
+use full commit SHAs. Deployment workflows remain manual-only.
 
 [PR #28](https://github.com/clement-machtelinckx/linter-python-flask/pull/28) replaced
 the inherited publisher. A `vX.Y.Z` or valid prerelease tag must point to current main.
@@ -203,19 +202,19 @@ Existing SemVer tags are refused, releases are serialized, and SHA tags provide
 traceability. Build metadata is rejected because Docker tags do not accept `+`.
 All actions in this release workflow use full commit SHAs.
 
-The successful current-main checks are [quality run 37786658034](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37786658034)
-and [security/integration run 37786658502](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37786658502).
+The successful current-main checks are [quality run 37789597550](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37789597550)
+and [security/integration run 37789598329](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37789598329).
 The final report still needs the actual public package URL, exact pull command,
 registry digest and successful release run. Implemented release controls are
 distinct from proof that an image has been published and pulled successfully.
 
 ## 7. Execution evidence and compliance matrix
 
-The [quality main run](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37785678874)
-and [security/integration main run](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37785679351)
-completed successfully for source commit `3c74e98c7b5b6504cfb4217c9b8296358bb0ffec`.
-Named security artifact: `image-security-3c74e98c7b5b6504cfb4217c9b8296358bb0ffec`;
-validated image artifact: `validated-image-3c74e98c7b5b6504cfb4217c9b8296358bb0ffec`.
+The [quality main run](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37789597550)
+and [security/integration main run](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37789598329)
+completed successfully for source commit `83659230ccc2d74b514aaabf62f381cd468dcdb4`.
+Named security artifact: `image-security-83659230ccc2d74b514aaabf62f381cd468dcdb4`;
+validated image artifact: `validated-image-83659230ccc2d74b514aaabf62f381cd468dcdb4`.
 Artifacts have seven-day retention; download them before expiry for the final submission.
 
 | Actual check | Result / exit status | Evidence |
@@ -274,12 +273,12 @@ An unresolved requirement is not counted as PASS, even when its issue is closed.
 | REQ-013 | Exec DB probe and healthy dependency / F | PASS | `pg_isready`, `service_healthy`, negative startup test |
 | REQ-014 | Real endpoints and pytest integration / F | PASS | Main integration job, real `SELECT 1` |
 | REQ-015 | Bounded startup and teardown / pipeline 5 | PASS | Wait timeout 90, successful unconditional cleanup |
-| REQ-016 | Blocking quality before build / A, pipeline 1-4 | FAIL | Quality and image build start independently |
-| REQ-017 | All external actions immutable, least permissions / G | FAIL | New workflows pinned; legacy tag references remain |
+| REQ-016 | Blocking quality before build / A, pipeline 1-4 | PASS | PR #30; image-security requires the successful reusable quality job |
+| REQ-017 | All external actions immutable, least permissions / G | PASS | PR #30; full SHA references and default contents: read |
 | REQ-018 | Gated SemVer GHCR distribution / G, pipeline 6 | NOT VERIFIED | Release controls merged in #28; publication/pull proof pending |
 | REQ-019 | Complete seven-section report with public release proof / report | NOT VERIFIED | This draft covers seven sections; public release and final signatures pending |
 
-**Provisional evidenced coverage: 15 / 19 = 78.95%** (15 PASS, two FAIL,
+**Provisional evidenced coverage: 17 / 19 = 89.47%** (17 PASS,
 two NOT VERIFIED). Final validation belongs to
 [issue #14](https://github.com/clement-machtelinckx/linter-python-flask/issues/14)
 after #12 and #13 are finalized. Both reviewers' final sign-off is pending.
@@ -292,3 +291,6 @@ Benoît's merged contributions: PostgreSQL hardening (#18), Flask quality/tests 
 exec healthcheck (#24), actual-image Compose integration (#26), validated artifact
 integration (#27). This report is prepared by Benoît for Clément's review.
 Actual publication verification and final compliance sign-off remain open work.
+[FINAL-CHECK.md](FINAL-CHECK.md) records the final audit and remaining release/report gaps
+tracked in [issue #31](https://github.com/clement-machtelinckx/linter-python-flask/issues/31)
+and [issue #13](https://github.com/clement-machtelinckx/linter-python-flask/issues/13).
