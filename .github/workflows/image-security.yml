@@ -98,3 +98,9 @@ jobs:
           name: image-security-${{ github.sha }}
           path: ${{ runner.temp }}/image-security/
           retention-days: 7
+
+  integration:
+    needs: image-security
+    uses: ./.github/workflows/multi-container.yml
+    with:
+      image-artifact: validated-image-${{ github.sha }}

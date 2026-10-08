@@ -1,17 +1,27 @@
 name: test multi container
 on:
-    pull_request:
-    workflow_dispatch:
+    workflow_call:
+        inputs:
+            image-artifact:
+                required: true
+                type: string
+
+permissions:
+    contents: read
 
 jobs:
     docker-compose-test:
         runs-on: ubuntu-latest
+        defaults:
+            run:
+                shell: bash
         env:
             COMPOSE_PROJECT_NAME: integration-${{ github.run_id }}-${{ github.run_attempt }}
+            IMAGE_TAG: flask-security:${{ github.sha }}
             DB_HOST: db
             DB_PORT: "5432"
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
             
             - name: Prepare test database credentials
               shell: bash
@@ -19,13 +29,35 @@ jobs:
                 db_password="$(openssl rand -hex 32)"
                 echo "::add-mask::$db_password"
                 {
+                  echo "COMPOSE_FILE=docker-compose.yml:$RUNNER_TEMP/compose.validated.yml"
                   echo "DB_USER=ci_$(openssl rand -hex 8)"
                   echo "DB_NAME=ci_$(openssl rand -hex 8)"
                   echo "DB_PASSWORD=$db_password"
                 } >> "$GITHUB_ENV"
+                cat > "$RUNNER_TEMP/compose.validated.yml" <<'EOF'
+                services:
+                  api-python:
+                    image: ${IMAGE_TAG:?Validated image tag is required}
+                    pull_policy: never
+                EOF
+
+            - name: Download validated image
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+              with:
+                name: ${{ inputs.image-artifact }}
+                path: ${{ runner.temp }}/validated-image
+
+            - name: Verify and load validated image
+              run: |
+                cd "$RUNNER_TEMP/validated-image"
+                sha256sum --check image.tar.sha256
+                test "$(cat commit.txt)" = "$GITHUB_SHA"
+                test "$(cat image-tag.txt)" = "$IMAGE_TAG"
+                docker image load --input image.tar
+                test "$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")" = "$(cat image-id.txt)"
 
             - name: start docker compose services
-              run: docker compose up --build --wait --wait-timeout 90 api-python db
+              run: docker compose up --no-build --wait --wait-timeout 90 api-python db
             
             - name: wait for api to be ready
               run: |
