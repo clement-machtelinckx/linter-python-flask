@@ -3,15 +3,17 @@
 Master 2 graded practical assignment, Benoît Bremaud and Clément Machtelinckx.
 This report follows sections A-G and the seven reporting sections of the assignment.
 Snapshot: **2026-10-08**, main commit
-`3c74e98c7b5b6504cfb4217c9b8296358bb0ffec` (merged [PR #27](https://github.com/clement-machtelinckx/linter-python-flask/pull/27)).
+`b9ebfaa8b791105d111dc71cb27393820aa244df` (merged [PR #28](https://github.com/clement-machtelinckx/linter-python-flask/pull/28)).
+The measured image and detailed scan evidence below belong to the preceding tested
+main commit `3c74e98c7b5b6504cfb4217c9b8296358bb0ffec`; the release merge changes workflows only.
 The compliance matrix is provisional until the release and final cross-review are complete.
 
 ## 1. Public GHCR packages and execution
 
 **Publication is not yet verified.** [Issue #12](https://github.com/clement-machtelinckx/linter-python-flask/issues/12)
-is open. No public package URL, released SemVer tag or confirmed `docker pull` command
-is claimed. The inherited publisher still targets another owner's package with `latest`;
-it must not be treated as this project's validated release.
+has been implemented and merged in PR #28, but no successful publication has yet been
+observed. No public package URL, released SemVer tag or confirmed `docker pull` command
+is claimed before the release run succeeds.
 
 The local composition builds this repository's API instead of using that inherited image:
 
@@ -187,15 +189,25 @@ Two verified gaps remain at this snapshot:
 - Quality and image-security are independent workflows: lint is blocking within
   quality, but does not yet prevent the image build from starting concurrently.
   The assignment requires quality before containerization.
-- Legacy workflows, including the inherited publisher and deployment workflows,
+- Legacy deployment workflows
   still contain actions pinned by tags. The assignment's all-actions SHA rule
   cannot be claimed for the whole `.github/workflows` directory.
 
-Issue #12 must provide a release conditioned on all gates for the same source commit,
-using the native `GITHUB_TOKEN`, default read-only permissions, `packages: write`
-only for publication, controlled SemVer tags and immutable actions. The final report
-must then add the actual public package URL, exact pull command, digest and verified
-release run. No release or SemVer behavior is claimed as completed here.
+[PR #28](https://github.com/clement-machtelinckx/linter-python-flask/pull/28) replaced
+the inherited publisher. A `vX.Y.Z` or valid prerelease tag must point to current main.
+The validation job requires successful quality and security/integration jobs for
+that exact SHA and retrieves the associated non-expired validated image artifact.
+The publication job uses the native token, has `packages: write` only at job scope,
+checks the archive/commit/tag/image ID, and publishes without rebuilding.
+Existing SemVer tags are refused, releases are serialized, and SHA tags provide
+traceability. Build metadata is rejected because Docker tags do not accept `+`.
+All actions in this release workflow use full commit SHAs.
+
+The successful current-main checks are [quality run 37786658034](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37786658034)
+and [security/integration run 37786658502](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37786658502).
+The final report still needs the actual public package URL, exact pull command,
+registry digest and successful release run. Implemented release controls are
+distinct from proof that an image has been published and pulled successfully.
 
 ## 7. Execution evidence and compliance matrix
 
@@ -264,19 +276,19 @@ An unresolved requirement is not counted as PASS, even when its issue is closed.
 | REQ-015 | Bounded startup and teardown / pipeline 5 | PASS | Wait timeout 90, successful unconditional cleanup |
 | REQ-016 | Blocking quality before build / A, pipeline 1-4 | FAIL | Quality and image build start independently |
 | REQ-017 | All external actions immutable, least permissions / G | FAIL | New workflows pinned; legacy tag references remain |
-| REQ-018 | Gated SemVer GHCR distribution / G, pipeline 6 | FAIL | Inherited publisher remains; no verified release |
+| REQ-018 | Gated SemVer GHCR distribution / G, pipeline 6 | NOT VERIFIED | Release controls merged in #28; publication/pull proof pending |
 | REQ-019 | Complete seven-section report with public release proof / report | NOT VERIFIED | This draft covers seven sections; public release and final signatures pending |
 
-**Provisional evidenced coverage: 15 / 19 = 78.95%** (15 PASS, three FAIL,
-one NOT VERIFIED). Final validation belongs to
+**Provisional evidenced coverage: 15 / 19 = 78.95%** (15 PASS, two FAIL,
+two NOT VERIFIED). Final validation belongs to
 [issue #14](https://github.com/clement-machtelinckx/linter-python-flask/issues/14)
 after #12 and #13 are finalized. Both reviewers' final sign-off is pending.
 
 ### Pair contributions
 
 Clément's merged contributions: initial audit (#17), dependencies (#19), API image
-(#20), build hygiene/Hadolint (#22), layer/security gates (#23), quality CI (#25).
+(#20), build hygiene/Hadolint (#22), layer/security gates (#23), quality CI (#25), gated release workflow (#28).
 Benoît's merged contributions: PostgreSQL hardening (#18), Flask quality/tests (#21),
 exec healthcheck (#24), actual-image Compose integration (#26), validated artifact
 integration (#27). This report is prepared by Benoît for Clément's review.
-The release and final compliance sign-off remain open work.
+Actual publication verification and final compliance sign-off remain open work.
