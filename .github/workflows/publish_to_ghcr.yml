@@ -1,29 +1,172 @@
-name: Docker Publish to GHCR
+name: Release to GHCR
 
 on:
-    workflow_dispatch:
-    workflow_run:
-        workflows: ["lint and test flask app"]
-        types:
-            - completed
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+# Serialize releases: the registry itself does not enforce immutable tags.
+concurrency:
+  group: ghcr-release
+  cancel-in-progress: false
 
 jobs:
-    build-and-push:
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            packages: write
-        
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
-            - name: Docker login to GHCR
-              uses: docker/login-action@v3
-              with:
-                registry: ghcr.io
-                username: ${{ github.actor }}
-                password: ${{ secrets.GITHUB_TOKEN }}
-            - name: Build Docker Image
-              run: docker build -t ghcr.io/loise/linter-python-flask/monapp:latest .
-            - name: Push Docker Image to GHCR
-              run: docker push ghcr.io/loise/linter-python-flask/monapp:latest
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      tag: ${{ steps.source.outputs.tag }}
+      run_id: ${{ steps.source.outputs.run_id }}
+      artifact_id: ${{ steps.source.outputs.artifact_id }}
+    steps:
+      - name: Validate SemVer, main commit and successful source workflows
+        id: source
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            if (context.eventName !== 'push' || !context.ref.startsWith('refs/tags/')) {
+              throw new Error('Only a tag push may publish');
+            }
+            const tag = context.ref.slice('refs/tags/'.length);
+            // SemVer without build metadata (+ is not allowed in Docker tags).
+            const version = tag.match(/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/);
+            if (!version || version[0] !== tag || tag.length > 128 || (version[4] && version[4].split('.').some(
+              id => /^[0-9]+$/.test(id) && id.length > 1 && id.startsWith('0')))) {
+              throw new Error('Invalid release tag: expected vX.Y.Z or vX.Y.Z-prerelease');
+            }
+            const repo = context.repo;
+            const {data: main} = await github.rest.git.getRef({...repo, ref: 'heads/main'});
+            const {data: commit} = await github.rest.repos.getCommit({...repo, ref: context.ref});
+            const sha = commit.sha;
+            if (sha !== context.sha || sha !== main.object.sha) {
+              throw new Error('The tag must point to the current main commit');
+            }
+            let security;
+            for (const [file, requiredJobs] of Object.entries({
+              'quality.yml': ['python-quality', 'hadolint'],
+              // TASK-011 runs integration in this same trusted workflow run.
+              'image-security.yml': ['image-security', 'integration / docker-compose-test']
+            })) {
+              const {data: workflow} = await github.rest.actions.getWorkflow({...repo, workflow_id: file});
+              const {data: runs} = await github.rest.actions.listWorkflowRuns({
+                ...repo, workflow_id: workflow.id, branch: 'main', head_sha: sha, per_page: 100
+              });
+              const run = runs.workflow_runs.find(r =>
+                ['push', 'workflow_dispatch'].includes(r.event) && r.head_branch === 'main' &&
+                r.head_sha === sha && r.head_repository.full_name === `${repo.owner}/${repo.repo}` &&
+                r.workflow_id === workflow.id && r.path === workflow.path);
+              if (!run || run.status !== 'completed' || run.conclusion !== 'success') {
+                throw new Error(`Missing successful main run for ${file} at ${sha}`);
+              }
+              const {data: jobs} = await github.rest.actions.listJobsForWorkflowRun({
+                ...repo, run_id: run.id, filter: 'latest', per_page: 100
+              });
+              if (requiredJobs.some(name => !jobs.jobs.some(j => j.name === name && j.conclusion === 'success'))) {
+                throw new Error(`Missing successful required job in ${file}`);
+              }
+              core.info(`${workflow.name}: ${run.html_url}`);
+              if (file === 'image-security.yml') security = run;
+            }
+            const name = `validated-image-${sha}`;
+            const {data: artifacts} = await github.rest.actions.listWorkflowRunArtifacts({
+              ...repo, run_id: security.id, per_page: 100
+            });
+            const matches = artifacts.artifacts.filter(a => a.name === name && !a.expired);
+            const origin = matches[0]?.workflow_run;
+            if (matches.length !== 1 || origin?.id !== security.id ||
+                origin.head_sha !== sha || origin.head_branch !== 'main' ||
+                origin.head_repository_id !== security.head_repository.id) {
+              throw new Error('Missing or untrusted validated image artifact');
+            }
+            core.setOutput('sha', sha);
+            core.setOutput('tag', tag);
+            core.setOutput('run_id', String(security.id));
+            core.setOutput('artifact_id', String(matches[0].id));
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      IMAGE: ghcr.io/clement-machtelinckx/linter-python-flask
+      COMMIT_SHA: ${{ needs.validate.outputs.sha }}
+      RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+    steps:
+      - name: Download the exact validated artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.validate.outputs.run_id }}
+          artifact-ids: ${{ needs.validate.outputs.artifact_id }}
+          path: ${{ runner.temp }}/validated-image
+          merge-multiple: true
+
+      - name: Verify and load the validated image without rebuilding
+        working-directory: ${{ runner.temp }}/validated-image
+        run: |
+          test "$(cat commit.txt)" = "$COMMIT_SHA"
+          test "$(cat image-tag.txt)" = "flask-security:$COMMIT_SHA"
+          grep -Eq '^[0-9a-f]{64}  image\.tar$' image.tar.sha256
+          sha256sum --check image.tar.sha256
+          grep -Eq '^sha256:[0-9a-f]{64}$' image-id.txt
+          docker image load --input image.tar
+          test "$(docker image inspect --format '{{.Id}}' "flask-security:$COMMIT_SHA")" = "$(cat image-id.txt)"
+
+      - name: Refuse to overwrite an existing release tag
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, urllib.error, urllib.parse, urllib.request
+          image = os.environ['IMAGE'].removeprefix('ghcr.io/')
+          credentials = f"{os.environ['GITHUB_ACTOR']}:{os.environ['GHCR_TOKEN']}".encode()
+          query = urllib.parse.urlencode({'service': 'ghcr.io', 'scope': f'repository:{image}:pull'})
+          request = urllib.request.Request('https://ghcr.io/token?' + query,
+              headers={'Authorization': 'Basic ' + base64.b64encode(credentials).decode()})
+          with urllib.request.urlopen(request, timeout=30) as response:
+              token = json.load(response)['token']
+          request = urllib.request.Request(f"https://ghcr.io/v2/{image}/manifests/{os.environ['RELEASE_TAG']}",
+              headers={'Authorization': 'Bearer ' + token,
+                       'Accept': 'application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'})
+          try:
+              urllib.request.urlopen(request, timeout=30).close()
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              codes = {item['code'] for item in json.load(error).get('errors', [])}
+              if not codes or not codes <= {'MANIFEST_UNKNOWN', 'NAME_UNKNOWN'}:
+                  raise
+              print('Release tag is absent; publication is allowed')
+          else:
+              raise SystemExit('Release tag already exists; refusing to overwrite it')
+          PY
+
+      - name: Login to GHCR with GITHUB_TOKEN
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish SemVer and commit tags and display the real digest
+        run: |
+          docker tag "flask-security:$COMMIT_SHA" "$IMAGE:$RELEASE_TAG"
+          docker tag "flask-security:$COMMIT_SHA" "$IMAGE:sha-${COMMIT_SHA:0:12}"
+          docker push "$IMAGE:sha-${COMMIT_SHA:0:12}"
+          docker push "$IMAGE:$RELEASE_TAG" | tee "$RUNNER_TEMP/release-push.log"
+          digest=$(sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' "$RUNNER_TEMP/release-push.log")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'Published image: %s@%s\n' "$IMAGE" "$digest" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Logout from GHCR
+        if: always()
+        run: docker logout ghcr.io

@@ -90,6 +90,7 @@ jobs:
           path: ${{ runner.temp }}/validated-image/
           retention-days: 7
           compression-level: 0
+          overwrite: true
 
       - name: Upload security reports even on failure
         if: always()
@@ -98,3 +99,4 @@ jobs:
           name: image-security-${{ github.sha }}
           path: ${{ runner.temp }}/image-security/
           retention-days: 7
+          overwrite: true
