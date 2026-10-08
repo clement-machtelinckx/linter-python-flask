@@ -5,31 +5,46 @@ services:
       - "5000:5000"
     environment:
       - ENV=test
-      - DB_USER=testuser
-      - DB_PASSWORD=testpass
-      - DB_NAME=testdb
+      - DB_USER=${DB_USER:?Set DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD}
+      - DB_NAME=${DB_NAME:?Set DB_NAME}
       - DB_HOST=db
       - DB_PORT=5432
     depends_on:
       db:
         condition: service_healthy
-  
+    networks:
+      - default
+      - database
+
   db:
-    image: postgres:14-alpine
+    image: cgr.dev/chainguard/postgres@sha256:a1b4ecd0b5ae8cf2ef961bc9ff82682d61d62f6f29412e9e8d5934acaef0e475
+    user: "70:70"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
-      POSTGRES_USER: testuser
-      POSTGRES_PASSWORD: testpass
-      POSTGRES_DB: testdb
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${DB_USER:?Set DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:?Set DB_NAME}
+      PGDATA: /var/lib/postgresql/18/data
     volumes:
-      - db-data-test:/var/lib/postgresql/data
+      # A separate volume preserves PostgreSQL 14 data; major upgrades need migration.
+      # Mount the image-owned parent so UID 70 can create its own PGDATA directory.
+      - db-data-pg18:/var/lib/postgresql
+    networks:
+      - database
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "${DB_USER:?Set DB_USER}", "-d", "${DB_NAME:?Set DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
 
 volumes:
-  db-data-test:
+  db-data-pg18:
+
+networks:
+  database:
+    internal: true
