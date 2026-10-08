@@ -1,6 +1,8 @@
 services:
   api-python:
-    image: ghcr.io/loise/linter-python-flask/monapp:latest
+    build: .
+    image: linter-python-flask-api:local
+    pull_policy: build
     ports:
       - "5000:5000"
     environment:
