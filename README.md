@@ -5,14 +5,40 @@ This report follows sections A-G and the seven reporting sections of the assignm
 Snapshot: **2026-10-08**, main commit
 `83659230ccc2d74b514aaabf62f381cd468dcdb4` (merged [PR #30](https://github.com/clement-machtelinckx/linter-python-flask/pull/30)).
 The final image scan and integration evidence below belong to this same main commit.
-The compliance matrix is provisional until the release and final cross-review are complete.
+Release `v1.0.0` publishes the validated image for this commit; the registry and smoke-test proofs are recorded below.
 
 ## 1. Public GHCR packages and execution
 
-**Publication is not yet verified.** [Issue #12](https://github.com/clement-machtelinckx/linter-python-flask/issues/12)
-has been implemented and merged in PR #28, but no successful publication has yet been
-observed. No public package URL, released SemVer tag or confirmed `docker pull` command
-is claimed before the release run succeeds.
+**Publication and anonymous download verified on 2026-10-08.**
+Public package: [linter-python-flask on GHCR](https://github.com/clement-machtelinckx/linter-python-flask/pkgs/container/linter-python-flask),
+whose unauthenticated page displays **Public** and tag **v1.0.0**.
+Successful [Release to GHCR run 37795286678](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37795286678)
+published source commit `83659230ccc2d74b514aaabf62f381cd468dcdb4` without rebuilding.
+
+```bash
+docker pull ghcr.io/clement-machtelinckx/linter-python-flask:v1.0.0
+# Immutable reference:
+docker pull ghcr.io/clement-machtelinckx/linter-python-flask@sha256:63b1a427ca8a14ae0d81031085ab3bbd9aa7129c08b733653c384185cd33cb3c
+```
+
+Verified registry manifest digest:
+`sha256:63b1a427ca8a14ae0d81031085ab3bbd9aa7129c08b733653c384185cd33cb3c`.
+The publication output, anonymous pull and SHA256 of the manifest bytes agree.
+Its config digest is `sha256:1df3dc6cd2e69ae022e7bc92d5f964bd9b270cf2717a55daef772483a4d4f30d`,
+exactly the image ID recorded in CI artifact **11556151455**. This image ID is
+separate from the registry manifest digest. The release verifies the archive checksum,
+commit, tag and image ID before loading and retagging that existing image.
+The anonymous pull used `docker --config /tmp/ghcr-final-evidence/docker-anonymous pull ghcr.io/clement-machtelinckx/linter-python-flask:v1.0.0`
+with an isolated `config.json` containing only `{}`.
+
+The published image was then started by digest with the unchanged Chainguard
+PostgreSQL digest and healthchecks from `docker-compose.yml`, using a temporary
+Compose override (`pull_policy: never`) and `up --no-build --wait --wait-timeout 90`.
+Both services became healthy; `/health` returned `{"status":"ok"}` and `/dbtest`
+returned `{"db_connection":"successful"}`. The existing Pytest integration test
+passed (one passed, five deselected); all temporary containers, networks and the DB
+volume were removed and their absence checked. Only the separate test runner was
+built; the API image was never rebuilt.
 
 The local composition builds this repository's API instead of using that inherited image:
 
@@ -172,7 +198,7 @@ The older [dependency report](security-dependencies.md) describes evidence files
 hash-locked manifests absent from this snapshot. Those missing links are not accepted
 as proof here. Current claims rely on the manifests and newly collected scanner results.
 
-## 6. CI/CD security and pending release
+## 6. CI/CD security and verified release
 
 [quality.yml](.github/workflows/quality.yml) runs Flake8, unit tests and configured
 Hadolint on pushes and pull requests targeting main, with `contents: read` and
@@ -204,9 +230,10 @@ All actions in this release workflow use full commit SHAs.
 
 The successful current-main checks are [quality run 37789597550](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37789597550)
 and [security/integration run 37789598329](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37789598329).
-The final report still needs the actual public package URL, exact pull command,
-registry digest and successful release run. Implemented release controls are
-distinct from proof that an image has been published and pulled successfully.
+The [successful release run](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37795286678)
+validated those exact source runs, downloaded artifact 11556151455 and published
+`v1.0.0` and `sha-83659230ccc2`. Section 1 records public access, anonymous pull and
+the matching registry/config digests. No quality or security gate was bypassed.
 
 ## 7. Execution evidence and compliance matrix
 
@@ -231,7 +258,10 @@ Artifacts have seven-day retention; download them before expiry for the final su
 | Compose startup and HTTP checks | Both healthy; `/health` and `/dbtest` succeed / 0 | Integration job log |
 | `pytest -v -m integration` | One passed, five deselected / 0 | Integration job log |
 | Teardown | Both containers, both networks and DB volume removed / 0 | Integration job log |
-| GHCR publication / SemVer pull | NOT VERIFIED | Issue #12 |
+| GHCR publication / SemVer pull | Published `v1.0.0`; anonymous pull / 0 | [Release run 37795286678](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/37795286678), public package and manifest in section 1 |
+| Published-image smoke test | Both healthy; endpoints correct; one integration test passes / 0 | Local smoke output below, same manifest digest as section 1 |
+| Published-image cleanup | Temporary containers, networks and DB volume absent / 0 | Explicit absence checks after `down --volumes --remove-orphans` |
+| SonarQube / SonarCloud | GitHub check neutral; API quality gate `NONE` | [Main analysis](https://sonarcloud.io/dashboard?id=clement-machtelinckx_linter-python-flask&branch=main); no configured passing quality gate claimed |
 
 Representative actual output:
 
@@ -243,14 +273,35 @@ image.tar: OK
 1 passed, 5 deselected in 0.13s
 ```
 
+Published-image smoke output (2026-10-08, Linux amd64):
+
+```text
+api-python: healthy
+db: healthy
+{"status":"ok"}
+{"db_connection":"successful"}
+Runtime: UID 65532 Python 3.13.5 checked shell/build-tool paths absent
+1 passed, 5 deselected in 0.43s
+CLEANUP: containers, networks and temporary volume absent
+```
+
+The current validated image's scan metadata records 76,446,208 uncompressed bytes;
+the historical 73,817,990-byte measurement above is retained with its original SHA.
+Current reports confirm Dive 99.7821%, 159 Trivy findings, zero CRITICAL and zero
+fixable HIGH/CRITICAL. The published runtime inspection confirms UID 65532, Python
+3.13.5, absent checked shell/compiler/package-manager paths, and no pip/pytest modules.
+No Docker, Dive or Trivy scan was repeated for the already validated release commit.
+
 Local supplementary evidence was collected under `/tmp/task013-evidence`: baseline
 Trivy JSON, baseline Dive log, downloaded main artifacts, image archive and runtime
 checks. Earlier positive/negative checks under `/tmp/task008-evidence` and
 `/tmp/task011-evidence` cover all six tests, wrong credentials, empty test selection,
 unhealthy DB blocking API startup, corrupted artifact metadata and cleanup.
-These temporary paths are working evidence, not persistent repository links.
+These historical temporary paths are working evidence, not persistent repository links.
+The release artifacts, manifest, publication log and targeted smoke output for this
+session were collected under `/tmp/ghcr-final-evidence`; durable CI links are above.
 
-### Provisional requirement coverage
+### Evidenced requirement coverage
 
 IDs follow the issue backlog's REQ-001 through REQ-019 mapping. Requirements are
 counted equally; the percentage measures evidenced coverage, not a grade or a risk score.
@@ -275,13 +326,15 @@ An unresolved requirement is not counted as PASS, even when its issue is closed.
 | REQ-015 | Bounded startup and teardown / pipeline 5 | PASS | Wait timeout 90, successful unconditional cleanup |
 | REQ-016 | Blocking quality before build / A, pipeline 1-4 | PASS | PR #30; image-security requires the successful reusable quality job |
 | REQ-017 | All external actions immutable, least permissions / G | PASS | PR #30; full SHA references and default contents: read |
-| REQ-018 | Gated SemVer GHCR distribution / G, pipeline 6 | NOT VERIFIED | Release controls merged in #28; publication/pull proof pending |
-| REQ-019 | Complete seven-section report with public release proof / report | NOT VERIFIED | This draft covers seven sections; public release and final signatures pending |
+| REQ-018 | Gated SemVer GHCR distribution / G, pipeline 6 | PASS | Successful release run 37795286678; public v1.0.0, anonymous pull and matching validated image ID |
+| REQ-019 | Complete seven-section report with public release proof / report | PASS | Seven sections, retained measurements, exact pull/digests, CI links and published-image smoke evidence |
 
-**Provisional evidenced coverage: 17 / 19 = 89.47%** (17 PASS,
-two NOT VERIFIED). Final validation belongs to
-[issue #14](https://github.com/clement-machtelinckx/linter-python-flask/issues/14)
-after #12 and #13 are finalized. Both reviewers' final sign-off is pending.
+**Evidenced technical coverage: 19 / 19 = 100%** for the listed requirements.
+This counts demonstrated technical requirements; it does not assert a Sonar quality
+gate PASS or invent either contributor's formal signature. The earlier
+[final audit #14](https://github.com/clement-machtelinckx/linter-python-flask/issues/14)
+covered the 17 technical requirements before release; the actual GHCR and reporting
+proofs now complete the two remaining entries.
 
 ### Pair contributions
 
@@ -290,7 +343,6 @@ Clément's merged contributions: initial audit (#17), dependencies (#19), API im
 Benoît's merged contributions: PostgreSQL hardening (#18), Flask quality/tests (#21),
 exec healthcheck (#24), actual-image Compose integration (#26), validated artifact
 integration (#27). This report is prepared by Benoît for Clément's review.
-Actual publication verification and final compliance sign-off remain open work.
-[FINAL-CHECK.md](FINAL-CHECK.md) records the final audit and remaining release/report gaps
-tracked in [issue #31](https://github.com/clement-machtelinckx/linter-python-flask/issues/31)
-and [issue #13](https://github.com/clement-machtelinckx/linter-python-flask/issues/13).
+Clément completed CI corrections (#30), the authorized `v1.0.0` publication and
+anonymous published-image verification, and updated these final README proofs for
+[issue #31](https://github.com/clement-machtelinckx/linter-python-flask/issues/31).
