@@ -19,20 +19,13 @@ jobs:
                 db_password="$(openssl rand -hex 32)"
                 echo "::add-mask::$db_password"
                 {
-                  echo "COMPOSE_FILE=docker-compose.yml:$RUNNER_TEMP/compose.integration.yml"
                   echo "DB_USER=ci_$(openssl rand -hex 8)"
                   echo "DB_NAME=ci_$(openssl rand -hex 8)"
                   echo "DB_PASSWORD=$db_password"
                 } >> "$GITHUB_ENV"
-                cat > "$RUNNER_TEMP/compose.integration.yml" <<'EOF'
-                services:
-                  api-python:
-                    build: .
-                    image: flask-integration:local
-                EOF
 
             - name: start docker compose services
-              run: docker compose up --build --wait api-python db
+              run: docker compose up --build --wait --wait-timeout 90 api-python db
             
             - name: wait for api to be ready
               run: |
