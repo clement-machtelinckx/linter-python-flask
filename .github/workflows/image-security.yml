@@ -1,0 +1,74 @@
+name: image security
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image-security:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      DIVE_VERSION: "0.13.1"
+      TRIVY_VERSION: "0.75.0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Prepare reports
+        run: |
+          mkdir -p "$RUNNER_TEMP/image-security"
+          git rev-parse HEAD > "$RUNNER_TEMP/image-security/commit.txt"
+          date -u +%FT%TZ > "$RUNNER_TEMP/image-security/time.txt"
+
+      - name: Build final image
+        id: build
+        run: docker build -t flask-security:test .
+
+      - name: Install verified tools
+        id: tools
+        run: |
+          mkdir -p "$RUNNER_TEMP/image-tools"
+          cd "$RUNNER_TEMP/image-tools"
+          curl -fsSLO "https://github.com/wagoodman/dive/releases/download/v${DIVE_VERSION}/dive_${DIVE_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLO "https://github.com/wagoodman/dive/releases/download/v${DIVE_VERSION}/dive_${DIVE_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "dive_${DIVE_VERSION}_checksums.txt"
+          tar -xzf "dive_${DIVE_VERSION}_linux_amd64.tar.gz" dive
+          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "trivy_${TRIVY_VERSION}_checksums.txt"
+          tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy
+          echo "$RUNNER_TEMP/image-tools" >> "$GITHUB_PATH"
+          ./dive --version > "$RUNNER_TEMP/image-security/tools.txt"
+          ./trivy --version >> "$RUNNER_TEMP/image-security/tools.txt"
+
+      - name: Dive efficiency gate (at least 80 percent)
+        run: |
+          CI=true dive flask-security:test --ci-config .dive-ci \
+            2>&1 | tee "$RUNNER_TEMP/image-security/dive.txt"
+
+      - name: Trivy full report (including unfixed vulnerabilities)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.tools.outcome == 'success' }}
+        run: |
+          trivy image --scanners vuln --format json \
+            --output "$RUNNER_TEMP/image-security/trivy-full.json" flask-security:test \
+            2>&1 | tee "$RUNNER_TEMP/image-security/trivy-full.log"
+
+      - name: Trivy fixable HIGH and CRITICAL gate
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.tools.outcome == 'success' }}
+        run: |
+          trivy image --scanners vuln --severity HIGH,CRITICAL \
+            --ignore-unfixed --exit-code 1 flask-security:test \
+            2>&1 | tee "$RUNNER_TEMP/image-security/trivy-gate.txt"
+
+      - name: Upload security reports even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-security-${{ github.sha }}
+          path: ${{ runner.temp }}/image-security/
+          retention-days: 7
