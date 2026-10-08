@@ -2,10 +2,6 @@ name: Deploy to EC2 with docker compose from ansible
 
 on:
     workflow_dispatch:
-    workflow_run:
-        workflows: ["test multi container"]
-        types:
-            - completed
 
 jobs:
     deploy:
