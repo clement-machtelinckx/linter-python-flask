@@ -2,6 +2,9 @@ name: image security
 
 on:
   pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -14,6 +17,7 @@ jobs:
       run:
         shell: bash
     env:
+      IMAGE_TAG: flask-security:${{ github.sha }}
       DIVE_VERSION: "0.13.1"
       TRIVY_VERSION: "0.75.0"
     steps:
@@ -27,7 +31,10 @@ jobs:
 
       - name: Build final image
         id: build
-        run: docker build -t flask-security:test .
+        run: |
+          docker buildx version
+          docker buildx build --check .
+          docker buildx build --load --tag "$IMAGE_TAG" .
 
       - name: Install verified tools
         id: tools
@@ -48,22 +55,41 @@ jobs:
 
       - name: Dive efficiency gate (at least 80 percent)
         run: |
-          CI=true dive flask-security:test --ci-config .dive-ci \
+          CI=true dive "$IMAGE_TAG" --ci-config .dive-ci \
             2>&1 | tee "$RUNNER_TEMP/image-security/dive.txt"
 
       - name: Trivy full report (including unfixed vulnerabilities)
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.tools.outcome == 'success' }}
         run: |
           trivy image --scanners vuln --format json \
-            --output "$RUNNER_TEMP/image-security/trivy-full.json" flask-security:test \
+            --output "$RUNNER_TEMP/image-security/trivy-full.json" "$IMAGE_TAG" \
             2>&1 | tee "$RUNNER_TEMP/image-security/trivy-full.log"
 
       - name: Trivy fixable HIGH and CRITICAL gate
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.tools.outcome == 'success' }}
         run: |
           trivy image --scanners vuln --severity HIGH,CRITICAL \
-            --ignore-unfixed --exit-code 1 flask-security:test \
+            --ignore-unfixed --exit-code 1 "$IMAGE_TAG" \
             2>&1 | tee "$RUNNER_TEMP/image-security/trivy-gate.txt"
+
+      # TASK-012 must load this image after all checks for this SHA have passed.
+      - name: Export the validated image for TASK-012
+        run: |
+          mkdir -p "$RUNNER_TEMP/validated-image"
+          docker image save --output "$RUNNER_TEMP/validated-image/image.tar" "$IMAGE_TAG"
+          docker image inspect --format '{{.Id}}' "$IMAGE_TAG" > "$RUNNER_TEMP/validated-image/image-id.txt"
+          printf '%s\n' "$IMAGE_TAG" > "$RUNNER_TEMP/validated-image/image-tag.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/validated-image/commit.txt"
+          cd "$RUNNER_TEMP/validated-image"
+          sha256sum image.tar > image.tar.sha256
+
+      - name: Upload validated image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validated-image-${{ github.sha }}
+          path: ${{ runner.temp }}/validated-image/
+          retention-days: 7
+          compression-level: 0
 
       - name: Upload security reports even on failure
         if: always()
