@@ -1,9 +1,10 @@
 # Declarative multi-arch build (needs a docker-container builder). `-f` is mandatory:
 # bake would otherwise pick docker-compose.yml first.
-# Local test against a throwaway registry:
-#   REGISTRY=localhost:5001 TAGS=dev docker buildx bake -f docker-bake.hcl
+# Default target is the local test registry, as seen from the builder on network tp2-net:
+#   docker buildx bake -f docker-bake.hcl
+#   REGISTRY=ghcr.io/<owner> TAGS=v1.1.0,latest docker buildx bake -f docker-bake.hcl
 variable "REGISTRY" {
-  default = "ghcr.io/clement-machtelinckx"
+  default = "tp2-registry:5000"
 }
 
 variable "IMAGE" {
