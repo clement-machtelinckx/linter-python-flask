@@ -15,14 +15,15 @@ BuildKit, hors des couches de l'image.
 
 | Mesure | Résultat |
 |---|---|
-| Build à froid (`A1-froid.log`) | 26,5 s, 20 paquets téléchargés |
+| Build à froid (`A1-froid.log`) | 26,5 s, 20 lignes `Downloading` : 10 wheels et leurs métadonnées (les wheels pure Python, téléchargées une fois, sont réutilisées par la 2ᵉ architecture via le cache partagé) |
 | Rebuild sans changement (`A3-cache-couches.log`) | 3,16 s, 13 étapes `CACHED` (cache de couches) |
 | Rebuild après modification du manifeste, retrait d'`itsdangerous` (`A2-chaud.log`) | l'étape pip est rejouée sur les deux architectures : 0 `Downloading`, 32 `Using cached` |
 | Fichiers de l'image finale (`A-fichiers-image.txt`) | 3000 entrées, dont 29 fichiers de `opt/python/flask/` ; 0 chemin `.cache/`, `__pycache__` ou `.pyc` |
 
 **Constat** — le cache supprime tous les retéléchargements, mais la durée totale ne baisse pas
 (29,9 s contre 26,5 s) : l'étape arm64 exécutée sous QEMU domine le temps de build
-(18,8 s → 26,6 s). Le gain du cache de montage porte sur le réseau, pas sur le CPU émulé.
+(18,8 s → 26,6 s). Les durées totales sont mesurées par `time` sur la commande `bake` ; les
+durées d'étape viennent des logs BuildKit. Le gain du cache de montage porte sur le réseau, pas sur le CPU émulé.
 
 ## B. Secret de build en mémoire vive
 
