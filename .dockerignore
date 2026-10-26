@@ -80,3 +80,6 @@ docker-compose*.yaml
 **/.DS_Store
 
 # Keep app.py, requirements.txt and requirements-runtime.txt in the context.
+
+# Bake definition is build tooling, not part of the image context
+docker-bake.hcl

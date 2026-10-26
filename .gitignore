@@ -188,3 +188,5 @@ terraform.tfstate.backup
 
 
 .idea/
+# Local build secrets (BuildKit --secret sources), never tracked
+secrets/

@@ -38,7 +38,10 @@ jobs:
         run: |
           docker buildx version
           docker buildx build --check .
-          docker buildx build --load --tag "$IMAGE_TAG" .
+          # Disposable simulated token: proves the build consumes and checks the secret.
+          umask 077
+          printf 'tok_%s\n' "$(openssl rand -hex 24)" > "$RUNNER_TEMP/pip_token"
+          docker buildx build --load --secret id=pip_token,src="$RUNNER_TEMP/pip_token" --tag "$IMAGE_TAG" .
 
       - name: Install verified tools
         id: tools

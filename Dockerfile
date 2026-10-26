@@ -1,7 +1,15 @@
+# syntax=docker/dockerfile:1
 FROM python:3.13.16-slim-trixie@sha256:bf44cdfcb76cd3b41e879bc058fc37ec5872002ccfde7fcb765e218cde0cd79c AS builder
 WORKDIR /build
 COPY requirements-runtime.txt .
-RUN python -m pip install --no-cache-dir --no-compile --only-binary=:all: \
+# The pip cache lives in a BuildKit cache mount, outside every image layer: a changed
+# requirement only downloads the delta. The token simulating an internal package server
+# is mounted in tmpfs for this instruction only (never ARG/ENV) and checked without
+# being printed, so it leaves no trace in layers, history or metadata.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=secret,id=pip_token,required=true \
+    grep -Eq '^tok_[0-9a-f]{48}$' /run/secrets/pip_token \
+    && python -m pip install --no-compile --only-binary=:all: \
     --target=/opt/python -r requirements-runtime.txt \
     && rm -rf /opt/python/bin
 
