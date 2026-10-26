@@ -1,6 +1,9 @@
 services:
   api-python:
-    build: .
+    build:
+      context: .
+      secrets:
+        - pip_token
     image: linter-python-flask-api:local
     pull_policy: build
     ports:
@@ -64,3 +67,8 @@ volumes:
 networks:
   database:
     internal: true
+
+# Build-time only: mounted in tmpfs by BuildKit, never stored in the image.
+secrets:
+  pip_token:
+    file: ./secrets/pip_token.txt
