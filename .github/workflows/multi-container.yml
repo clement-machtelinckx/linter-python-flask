@@ -99,6 +99,8 @@ jobs:
             
             - name: stop and remove container
               if: always()
-              run: |
-                docker compose down --volumes --remove-orphans
-                rm -f "$RUNNER_TEMP/build-token"
+              run: docker compose down --volumes --remove-orphans
+
+            - name: Remove build simulation token
+              if: always()
+              run: rm -f "$RUNNER_TEMP/build-token"

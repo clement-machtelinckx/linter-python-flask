@@ -23,12 +23,17 @@ target "local" {
   attest = ["type=provenance,disabled=true"]
 }
 
+target "arm64" {
+  inherits = ["local"]
+  platforms = ["linux/arm64"]
+  tags = ["linter-python-flask-api:arm64"]
+}
+
 target "multiarch" {
   inherits = ["common"]
   platforms = ["linux/amd64", "linux/arm64"]
   cache-from = ["type=registry,ref=${CACHE_REF}"]
   cache-to = ["type=registry,ref=${CACHE_REF},mode=max"]
-  attest = ["type=provenance,mode=max"]
   output = ["type=oci,dest=${OCI_DEST}"]
 }
 

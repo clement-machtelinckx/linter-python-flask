@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, tp2/buildkit-supply-chain-multiarch]
   workflow_dispatch:
 
 permissions:
@@ -27,6 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        with:
+          image: tonistiigi/binfmt:qemu-v9.2.2@sha256:1b804311fe87047a4c96d38b4b3ef6f62fca8cd125265917a9e3dc3c996c39e6
+          platforms: arm64
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.28.0
+          driver: docker-container
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+
       - name: Prepare reports
         run: |
           mkdir -p "$RUNNER_TEMP/image-security"
@@ -34,12 +44,32 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/image-security/commit.txt"
           date -u +%FT%TZ > "$RUNNER_TEMP/image-security/time.txt"
 
-      - name: Build final image
-        id: build
+      - name: Validate Bake and Dockerfile
         run: |
-          docker buildx version
+          docker buildx bake -f docker-bake.hcl --print local arm64 multiarch > "$RUNNER_TEMP/image-security/bake.json"
           docker buildx build --check .
-          docker buildx build --load --secret "id=build_token,src=$RUNNER_TEMP/build-token" --tag "$IMAGE_TAG" .
+
+      - name: Build AMD64, ARM64 and local OCI index without publishing
+        id: build
+        uses: docker/bake-action@5be5f02ff8819ecd3092ea6b2e6261c31774f2b4 # v6
+        env:
+          BUILD_TOKEN_FILE: ${{ runner.temp }}/build-token
+        with:
+          files: docker-bake.hcl
+          targets: local,arm64,multiarch
+          set: |
+            local.tags=${{ env.IMAGE_TAG }}
+            multiarch.cache-from=type=gha,scope=tp2-multiarch
+            multiarch.cache-to=type=gha,scope=tp2-multiarch,mode=max
+
+      - name: Check local index and binary imports on both platforms
+        run: |
+          python3 scripts/check_multiarch.py security-evidence/image.oci.tar > "$RUNNER_TEMP/image-security/multiarch.json"
+          docker run --rm --platform linux/arm64 --entrypoint /usr/bin/python3.13 \
+            linter-python-flask-api:arm64 -c 'import flask, psycopg2, os; assert os.getuid() == 65532'
+          docker history --no-trunc "$IMAGE_TAG" > "$RUNNER_TEMP/image-security/history.txt"
+          python3 scripts/check_secret.py "$RUNNER_TEMP/build-token" \
+            security-evidence/image.oci.tar "$RUNNER_TEMP/image-security/history.txt"
 
       - name: Install verified tools
         id: tools
@@ -76,6 +106,13 @@ jobs:
           trivy image --scanners vuln --severity HIGH,CRITICAL \
             --ignore-unfixed --exit-code 1 "$IMAGE_TAG" \
             2>&1 | tee "$RUNNER_TEMP/image-security/trivy-gate.txt"
+
+      - name: Trivy secret gate without secret values in reports
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.tools.outcome == 'success' }}
+        run: |
+          trivy image --scanners secret --exit-code 1 --format template \
+            --template '{{range .}}{{range .Secrets}}{{.RuleID}} at line {{.StartLine}}{{"\n"}}{{end}}{{end}}' \
+            "$IMAGE_TAG" > "$RUNNER_TEMP/image-security/trivy-secrets.txt"
 
       # TASK-012 must load this image after all checks for this SHA have passed.
       - name: Export the validated image for TASK-012
