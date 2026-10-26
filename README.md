@@ -45,6 +45,9 @@ The local composition builds this repository's API instead of using that inherit
 ```bash
 cp .env.example .env
 # Set a fresh DB_PASSWORD in .env before proceeding; do not commit .env.
+# The build mounts a required secret simulating a private package-index token
+# (git-ignored, never copied into the image):
+mkdir -p secrets && printf 'tok_%s\n' "$(openssl rand -hex 24)" > secrets/pip_token.txt
 docker compose config --quiet
 docker compose up --build --wait --wait-timeout 90
 curl -fsS http://localhost:5000/health
@@ -56,6 +59,10 @@ The API publishes port 5000; PostgreSQL publishes no host port. Choose another A
 host port with a Compose override if 5000 is already occupied.
 `docker compose down` stops this local composition without deleting database data.
 CI uses temporary databases and additionally removes its own volumes during teardown.
+A plain `docker build .` needs the same secret:
+`docker build --secret id=pip_token,src=secrets/pip_token.txt .`
+The multi-architecture build (amd64 + arm64) is declared in `docker-bake.hcl`; see
+[docs/tp2-etape1-rapport.md](docs/tp2-etape1-rapport.md).
 
 ## 2. Before / after measurements
 

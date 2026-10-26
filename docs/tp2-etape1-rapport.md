@@ -32,7 +32,9 @@ durées d'étape viennent des logs BuildKit. Le gain du cache de montage porte s
 vérifié (`grep -Eq '^tok_[0-9a-f]{48}$'`), puis il est démonté à la fin de l'instruction. Aucun
 `ARG` ni `ENV` portant le jeton. Bake fournit le fichier local `secrets/pip_token.txt` (chemin
 utilisé pour toutes les preuves). Compose (`build.secrets`) et la CI (jeton éphémère généré dans
-`$RUNNER_TEMP`) sont configurés de la même façon, mais non exécutés dans ce travail local.
+`$RUNNER_TEMP`) sont configurés de la même façon, mais leur build n'a pas été exécuté ici.
+Seul le build exige le fichier secret : `docker compose config` et `up --no-build`, utilisés
+par la CI multi-conteneurs, fonctionnent sans lui.
 
 **Preuves** (le jeton n'est jamais affiché : seules les occurrences sont comptées avec
 `grep -cFf secrets/pip_token.txt`)

@@ -1,6 +1,11 @@
 # Declarative multi-arch build (needs a docker-container builder). `-f` is mandatory:
 # bake would otherwise pick docker-compose.yml first.
-# Default target is the local test registry, as seen from the builder on network tp2-net:
+# Run from the repository root (the secret path is relative) with secrets/pip_token.txt present.
+# Default target is the local test registry, as seen from the builder on network tp2-net; that
+# builder needs a buildkitd.toml marking the registry as plain HTTP:
+#   [registry."tp2-registry:5000"]
+#     http = true
+#     insecure = true
 #   docker buildx bake -f docker-bake.hcl
 #   REGISTRY=ghcr.io/<owner> TAGS=v1.1.0,latest docker buildx bake -f docker-bake.hcl
 variable "REGISTRY" {
