@@ -9,12 +9,12 @@ COPY requirements-runtime.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=secret,id=pip_token,required=true \
     grep -Eq '^tok_[0-9a-f]{48}$' /run/secrets/pip_token \
-    && python -m pip install --no-compile --only-binary=:all: \
+    && python -m pip install --no-compile --only-binary=:all: --require-hashes \
     --target=/opt/python -r requirements-runtime.txt \
     && rm -rf /opt/python/bin
 
 # Same CPython 3.13 ABI and Debian 13 libc as the builder.
-FROM gcr.io/distroless/python3-debian13:nonroot@sha256:774595d652a294b54c9bd575b2d9fdd1a4b47547dc17b8bfa4c0e953c64855b3
+FROM gcr.io/distroless/python3-debian13:nonroot@sha256:64e54c4b1200da244d80181d98e86fc01d73c8101f107d5baf472152d8e119a2
 ENV PYTHONPATH=/opt/python \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
