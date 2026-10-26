@@ -80,3 +80,10 @@ docker-compose*.yaml
 **/.DS_Store
 
 # Keep app.py, requirements.txt and requirements-runtime.txt in the context.
+
+**/.secrets
+scripts
+security
+docs
+.dive-ci
+docker-bake.hcl

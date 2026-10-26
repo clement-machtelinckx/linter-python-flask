@@ -1,6 +1,9 @@
 services:
   api-python:
-    build: .
+    build:
+      context: .
+      secrets:
+        - build_token
     image: linter-python-flask-api:local
     pull_policy: build
     ports:
@@ -64,3 +67,7 @@ volumes:
 networks:
   database:
     internal: true
+
+secrets:
+  build_token:
+    file: ${BUILD_TOKEN_FILE:-.secrets/build-token}

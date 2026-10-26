@@ -188,3 +188,5 @@ terraform.tfstate.backup
 
 
 .idea/
+.secrets/
+security-evidence/

@@ -26,6 +26,8 @@ jobs:
             - name: Prepare test database credentials
               shell: bash
               run: |
+                (umask 077; openssl rand -hex 32 > "$RUNNER_TEMP/build-token")
+                echo "BUILD_TOKEN_FILE=$RUNNER_TEMP/build-token" >> "$GITHUB_ENV"
                 db_password="$(openssl rand -hex 32)"
                 echo "::add-mask::$db_password"
                 {
@@ -97,4 +99,6 @@ jobs:
             
             - name: stop and remove container
               if: always()
-              run: docker compose down --volumes --remove-orphans
+              run: |
+                docker compose down --volumes --remove-orphans
+                rm -f "$RUNNER_TEMP/build-token"

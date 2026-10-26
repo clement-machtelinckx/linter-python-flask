@@ -30,6 +30,7 @@ jobs:
       - name: Prepare reports
         run: |
           mkdir -p "$RUNNER_TEMP/image-security"
+          (umask 077; openssl rand -hex 32 > "$RUNNER_TEMP/build-token")
           git rev-parse HEAD > "$RUNNER_TEMP/image-security/commit.txt"
           date -u +%FT%TZ > "$RUNNER_TEMP/image-security/time.txt"
 
@@ -38,7 +39,7 @@ jobs:
         run: |
           docker buildx version
           docker buildx build --check .
-          docker buildx build --load --tag "$IMAGE_TAG" .
+          docker buildx build --load --secret "id=build_token,src=$RUNNER_TEMP/build-token" --tag "$IMAGE_TAG" .
 
       - name: Install verified tools
         id: tools
@@ -104,6 +105,10 @@ jobs:
           path: ${{ runner.temp }}/image-security/
           retention-days: 7
           overwrite: true
+
+      - name: Remove build simulation token
+        if: always()
+        run: rm -f "$RUNNER_TEMP/build-token"
 
   integration:
     needs: image-security
