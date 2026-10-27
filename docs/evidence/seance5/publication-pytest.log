@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0
+rootdir: /app
+configfile: pytest.ini
+collected 6 items / 1 deselected / 5 selected
+
+test_app.py .....                                                        [100%]
+
+======================= 5 passed, 1 deselected in 0.79s ========================

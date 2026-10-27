@@ -1,0 +1,300 @@
+### CycloneDX — nombre de composants
+$ jq '.components | length' docs/evidence/seance5/sbom-api.cdx.json
+2186
+Code de retour : 0
+
+### CycloneDX — cinq premiers composants
+$ jq '.components[:5][] | {name, version, purl}' docs/evidence/seance5/sbom-api.cdx.json
+{
+  "name": "base-files",
+  "version": "13.8+deb13u7",
+  "purl": "pkg:deb/debian/base-files@13.8%2Bdeb13u7?arch=amd64&distro=debian-13.7"
+}
+{
+  "name": "blinker",
+  "version": "1.9.0",
+  "purl": "pkg:pypi/blinker@1.9.0"
+}
+{
+  "name": "ca-certificates",
+  "version": "20250419+deb13u1",
+  "purl": "pkg:deb/debian/ca-certificates@20250419%2Bdeb13u1?arch=all&distro=debian-13.7"
+}
+{
+  "name": "click",
+  "version": "8.5.0",
+  "purl": "pkg:pypi/click@8.5.0"
+}
+{
+  "name": "flask",
+  "version": "3.1.3",
+  "purl": "pkg:pypi/flask@3.1.3"
+}
+Code de retour : 0
+
+### CycloneDX — noms contenant ssl
+$ jq '.components[] | select(.name | test("ssl"; "i")) | {name, version, purl, type}' docs/evidence/seance5/sbom-api.cdx.json
+{
+  "name": "libssl3t64",
+  "version": "3.5.7-1~deb13u3",
+  "purl": "pkg:deb/debian/libssl3t64@3.5.7-1~deb13u3?arch=amd64&distro=debian-13.7&upstream=openssl",
+  "type": "library"
+}
+{
+  "name": "/usr/lib/x86_64-linux-gnu/libssl.so.3",
+  "version": null,
+  "purl": null,
+  "type": "file"
+}
+{
+  "name": "/usr/share/doc/libssl3t64/NEWS.Debian.gz",
+  "version": null,
+  "purl": null,
+  "type": "file"
+}
+{
+  "name": "/usr/share/doc/libssl3t64/changelog.Debian.gz",
+  "version": null,
+  "purl": null,
+  "type": "file"
+}
+{
+  "name": "/usr/share/doc/libssl3t64/changelog.gz",
+  "version": null,
+  "purl": null,
+  "type": "file"
+}
+{
+  "name": "/usr/share/doc/libssl3t64/copyright",
+  "version": null,
+  "purl": null,
+  "type": "file"
+}
+{
+  "name": "/usr/share/lintian/overrides/libssl3t64",
+  "version": null,
+  "purl": null,
+  "type": "file"
+}
+{
+  "name": "/var/lib/dpkg/status.d/libssl3t64",
+  "version": null,
+  "purl": null,
+  "type": "file"
+}
+{
+  "name": "/var/lib/dpkg/status.d/libssl3t64.md5sums",
+  "version": null,
+  "purl": null,
+  "type": "file"
+}
+{
+  "name": "/usr/lib/python3.13/lib-dynload/_ssl.cpython-313-x86_64-linux-gnu.so",
+  "version": null,
+  "purl": null,
+  "type": "file"
+}
+{
+  "name": "/usr/lib/python3.13/ssl.py",
+  "version": null,
+  "purl": null,
+  "type": "file"
+}
+{
+  "name": "/usr/lib/python3.13/asyncio/sslproto.py",
+  "version": null,
+  "purl": null,
+  "type": "file"
+}
+Code de retour : 0
+
+### CycloneDX — licences distinctes
+$ jq '[.components[] | .licenses[]? | (.expression // .license.id // .license.name // empty)] | unique' docs/evidence/seance5/sbom-api.cdx.json
+[
+  "0BSD",
+  "Apache-2.0",
+  "Artistic",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSD-3-Clause-Variant",
+  "BSD-3-clause-Berkeley",
+  "BSD-3-clause-Carnegie",
+  "BSD-3-clause-Oracle",
+  "BSD-3-clause-WIDE",
+  "BSD-3-clause-fjord",
+  "BSD-4-Clause",
+  "BSD-4-Clause-CMU",
+  "BSD-like-Spencer",
+  "BSD-variant",
+  "BSL-1.0",
+  "BSLA",
+  "CORE-MATH",
+  "Carnegie",
+  "DEC",
+  "Expat",
+  "FSFAP",
+  "FSFUL",
+  "FSFULLR",
+  "GFDL",
+  "GFDL-NIV-1.3+",
+  "GPL",
+  "GPL-1.0-only",
+  "GPL-1.0-or-later",
+  "GPL-2+-autoconf-exception",
+  "GPL-2+-libtool-exception",
+  "GPL-2+-with-link-exception",
+  "GPL-2.0-only",
+  "GPL-2.0-or-later",
+  "GPL-3+-autoconf-exception",
+  "GPL-3.0-only",
+  "GPL-3.0-or-later",
+  "GPL-3.0-or-later-WITH-Autoconf-exception-macro",
+  "IBM",
+  "ISC",
+  "ISC-no-attribution",
+  "Inner-Net",
+  "Kazlib",
+  "LGPL",
+  "LGPL with exceptions",
+  "LGPL-2.0-only",
+  "LGPL-2.0-or-later",
+  "LGPL-2.1+-with-link-exception",
+  "LGPL-2.1-only",
+  "LGPL-2.1-or-later",
+  "LGPL-3.0-only",
+  "LGPL-3.0-or-later",
+  "Latex2e",
+  "MIT",
+  "MIT-like-Lord",
+  "MIT-old",
+  "MIT/X11",
+  "MPL-1.1",
+  "MPL-2.0",
+  "MS-PL",
+  "PCRE",
+  "PD",
+  "PD-debian",
+  "Sleepycat",
+  "SunPro",
+  "TCL-like",
+  "Unicode-DFS-2016",
+  "Univ-Coimbra",
+  "X11",
+  "Zlib",
+  "ad-hoc",
+  "noderivs",
+  "permissive-autoconf-m4",
+  "permissive-autoconf-m4-no-warranty",
+  "permissive-configure",
+  "permissive-fsf",
+  "permissive-makefile-in",
+  "permissive-nowarranty",
+  "public-domain",
+  "sha256:20390f8a6f3b1e4d7cb45dd8652dabb259bbef688cbad839bcdb0b9ba7252f79",
+  "sha256:5a5e7ca0e9f3f9679977e3a3e9ede45ad92885a3297ea78e766979f9866c5a16",
+  "sha256:936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816",
+  "sha256:f1cbf908e1daa8789b389fdcf17811ed36b675d736b39a103591399861350382",
+  "verbatim"
+]
+Code de retour : 0
+
+### SPDX — nombre de packages
+$ jq '.packages | length' docs/evidence/seance5/sbom-api.spdx.json
+47
+Code de retour : 0
+
+### SPDX — dix premiers packages
+$ jq '.packages[:10][] | {name, versionInfo}' docs/evidence/seance5/sbom-api.spdx.json
+{
+  "name": "base-files",
+  "versionInfo": "13.8+deb13u7"
+}
+{
+  "name": "blinker",
+  "versionInfo": "1.9.0"
+}
+{
+  "name": "ca-certificates",
+  "versionInfo": "20250419+deb13u1"
+}
+{
+  "name": "click",
+  "versionInfo": "8.5.0"
+}
+{
+  "name": "flask",
+  "versionInfo": "3.1.3"
+}
+{
+  "name": "gcc-14-base",
+  "versionInfo": "14.2.0-19"
+}
+{
+  "name": "itsdangerous",
+  "versionInfo": "2.2.0"
+}
+{
+  "name": "jinja2",
+  "versionInfo": "3.1.6"
+}
+{
+  "name": "libbz2-1.0",
+  "versionInfo": "1.0.8-6"
+}
+{
+  "name": "libc-bin",
+  "versionInfo": "2.41-12+deb13u4"
+}
+Code de retour : 0
+
+### SPDX — noms contenant openssl
+$ jq '.packages[] | select(.name | test("openssl"; "i")) | {name, versionInfo, licenseConcluded}' docs/evidence/seance5/sbom-api.spdx.json
+(aucun résultat)
+Code de retour : 0
+
+### SPDX — licenseConcluded distinctes
+$ jq '[.packages[].licenseConcluded] | unique' docs/evidence/seance5/sbom-api.spdx.json
+[
+  "BSD-3-Clause",
+  "LicenseRef-20390f8a6f3b1e4d7cb45dd8652dabb259bbef688cbad839bcdb0b9ba7252f79",
+  "LicenseRef-5a5e7ca0e9f3f9679977e3a3e9ede45ad92885a3297ea78e766979f9866c5a16",
+  "LicenseRef-936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816",
+  "LicenseRef-f1cbf908e1daa8789b389fdcf17811ed36b675d736b39a103591399861350382",
+  "MIT",
+  "NOASSERTION"
+]
+Code de retour : 0
+
+### CycloneDX — paquets libssl et openssl (noms exacts)
+$ jq '.components[] | select(.name == "libssl3" or .name == "libssl3t64" or .name == "openssl") | {name, version, purl}' docs/evidence/seance5/sbom-api.cdx.json
+{
+  "name": "libssl3t64",
+  "version": "3.5.7-1~deb13u3",
+  "purl": "pkg:deb/debian/libssl3t64@3.5.7-1~deb13u3?arch=amd64&distro=debian-13.7&upstream=openssl"
+}
+Code de retour : 0
+
+### SPDX — version du paquet libssl
+$ jq '.packages[] | select(.name | test("^libssl")) | {name, versionInfo, licenseConcluded}' docs/evidence/seance5/sbom-api.spdx.json
+{
+  "name": "libssl3t64",
+  "versionInfo": "3.5.7-1~deb13u3",
+  "licenseConcluded": "NOASSERTION"
+}
+Code de retour : 0
+
+### CycloneDX — nombre de valeurs de licence distinctes
+$ jq '[.components[] | .licenses[]? | (.expression // .license.id // .license.name // empty)] | unique | length' docs/evidence/seance5/sbom-api.cdx.json
+84
+Code de retour : 0
+
+### CycloneDX — nombre de paquets nommés openssl
+$ jq '[.components[] | select(.name == "openssl")] | length' docs/evidence/seance5/sbom-api.cdx.json
+0
+Code de retour : 0
+
+### SPDX — nombre de paquets nommés openssl
+$ jq '[.packages[] | select(.name == "openssl")] | length' docs/evidence/seance5/sbom-api.spdx.json
+0
+Code de retour : 0
+

@@ -1,0 +1,24 @@
+{
+  "format": "CycloneDX",
+  "specification": "1.7",
+  "image": "python",
+  "types": [
+    {
+      "type": "application",
+      "count": 7
+    },
+    {
+      "type": "file",
+      "count": 2659
+    },
+    {
+      "type": "library",
+      "count": 88
+    },
+    {
+      "type": "operating-system",
+      "count": 1
+    }
+  ],
+  "components_with_purl": 89
+}

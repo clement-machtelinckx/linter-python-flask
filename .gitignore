@@ -190,3 +190,12 @@ terraform.tfstate.backup
 .idea/
 # Local build secrets (BuildKit --secret sources), never tracked
 secrets/
+.secrets/
+
+# Cosign private keys, including keys inside the evidence directory
+cosign.key
+
+# Downloaded tools and local scanner cache are not publication artifacts
+/docs/evidence/seance5/syft-v*/
+/docs/evidence/seance5/cosign-v*/
+/docs/evidence/seance5/trivy-cache/

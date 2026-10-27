@@ -1,0 +1,49 @@
+{
+  "image": "linter-python-flask-api:local",
+  "versions": {
+    "syft": "1.51.1",
+    "trivy": "0.75.0"
+  },
+  "package_counts": {
+    "syft": 47,
+    "trivy": 48
+  },
+  "trivy_minus_syft": 1,
+  "common_name_version_pairs": 46,
+  "only_syft": [
+    {
+      "name": "linter-python-flask-api",
+      "version": "local",
+      "purls": [
+        "pkg:oci/linter-python-flask-api@sha256%3A5fb97904b5200153f28a66d8bf7c915ac36affce3bef0afb7ad4c6b16c3caf27?arch=amd64&tag=local"
+      ]
+    }
+  ],
+  "only_trivy": [
+    {
+      "name": "linter-python-flask-api:local",
+      "version": null,
+      "purls": [
+        "pkg:oci/linter-python-flask-api@sha256:5f21fdc9e986c3d2be21ab8108cd39a6a8526d228d5111414fc0bfb316671695?arch=amd64&repository_url=index.docker.io%2Flibrary%2Flinter-python-flask-api"
+      ]
+    },
+    {
+      "name": "debian",
+      "version": "13.7",
+      "purls": []
+    }
+  ],
+  "counts_by_purl_ecosystem": {
+    "syft": {
+      "deb": 38,
+      "pypi": 8,
+      "oci": 1
+    },
+    "trivy": {
+      "oci": 1,
+      "pypi": 8,
+      "deb": 38,
+      "without-purl": 1
+    }
+  }
+}

@@ -1,0 +1,20 @@
+$ cosign verify --allow-http-registry --key docs/evidence/seance5/keys/wrong-key.pub localhost:5001/linter-python-flask-api@sha256:5f21fdc9e986c3d2be21ab8108cd39a6a8526d228d5111414fc0bfb316671695
+Error: no matching signatures: error verifying bundle: comparing public key PEMs, expected -----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE5kbyj+4egHezVU87HR2h+Da2/7gf
+tqi1adXooIqxxupy56H+gkzOo6bpoX2yFkOtbW5jGY/y8ENnCvBTsYB8Gg==
+-----END PUBLIC KEY-----
+, got -----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEPVD03aGRMOt2GTKesmJTBbRjzRbm
+oDeHsJnRjHFeRiZX3VFwfcJvFmeeUcj0n91wINDm2BnP+QKBnilEDUrebA==
+-----END PUBLIC KEY-----
+
+main.go:69: error during command execution: no matching signatures: error verifying bundle: comparing public key PEMs, expected -----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE5kbyj+4egHezVU87HR2h+Da2/7gf
+tqi1adXooIqxxupy56H+gkzOo6bpoX2yFkOtbW5jGY/y8ENnCvBTsYB8Gg==
+-----END PUBLIC KEY-----
+, got -----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEPVD03aGRMOt2GTKesmJTBbRjzRbm
+oDeHsJnRjHFeRiZX3VFwfcJvFmeeUcj0n91wINDm2BnP+QKBnilEDUrebA==
+-----END PUBLIC KEY-----
+
+Code de retour : 12

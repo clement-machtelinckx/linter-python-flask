@@ -1,0 +1,6 @@
+syft: /home/yazii/.local/bin/syft
+cosign: /home/yazii/.local/bin/cosign
+jq: /usr/bin/jq
+curl: /usr/bin/curl
+openssl: /usr/bin/openssl
+docker: /usr/bin/docker

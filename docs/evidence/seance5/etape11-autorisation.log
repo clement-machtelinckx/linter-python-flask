@@ -1,0 +1,3 @@
+Première commande cosign attest non exécutée : rejet du contrôle automatique d’autorisation.
+Motif : le comportement par défaut publierait le SBOM dans le journal public Rekor, destination non explicitement autorisée.
+Correction : attestation publiée uniquement dans le registre local avec --tlog-upload=false ; vérification de signature, digest et prédicat avec --insecure-ignore-tlog, sans prétendre vérifier une inclusion Rekor pour cette attestation.

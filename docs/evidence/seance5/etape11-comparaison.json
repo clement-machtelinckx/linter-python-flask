@@ -1,0 +1,12 @@
+{
+  "predicate_type": "https://spdx.dev/Document",
+  "subject_matches_signed_digest": true,
+  "package_counts": {
+    "original": 47,
+    "verified": 47
+  },
+  "sbom_json_identical": true,
+  "canonical_sha256": "39b9917a1b2a495340da5e3a0054424dccbc86d3ea3bf48631619f2960432c73",
+  "rekor_inclusion_checked_for_attestation": false,
+  "verdict": "PASS"
+}

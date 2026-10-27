@@ -1,0 +1,3 @@
+.gitignore:196:cosign.key	cosign.key
+.gitignore:193:.secrets/	.secrets/pip_token.txt
+.gitignore:196:cosign.key	docs/evidence/seance5/keys/cosign.key

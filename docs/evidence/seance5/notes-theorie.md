@@ -1,0 +1,15 @@
+# Séance 5 — notes théoriques
+
+- Mon SBOM inventorie composants, versions, dépendances et licences ; il ne prouve pas l’absence de vulnérabilités.
+- Les trois piliers : transparence (savoir ce qui est livré), intégrité (détecter une modification par empreinte et signature), provenance (relier l’artefact à son origine et à sa construction).
+- Un PURL identifie un paquet par écosystème, nom et version, par exemple `pkg:pypi/flask@3.1.3`.
+- CycloneDX décrit composants, relations et risques (`components` en JSON) ; SPDX décrit aussi paquets, relations et licences (`packages` en SPDX 2.x). Les deux permettent l’échange automatisé de SBOM.
+- Les 17 champs CISA 2026 comprennent neuf informations de document : auteur, signature de l’auteur, nom et version du format, contexte de génération, horodatage, nom et version de l’outil, version du SBOM.
+- Les huit autres informations concernent le composant : producteur, relation de dépendance, valeur et algorithme d’empreinte, identifiants, licence, nom, version.
+- xBOM étend cet inventaire au matériel (HBOM), à la cryptographie (CBOM), aux modèles d’apprentissage (ML-BOM), etc.
+- Le PDF du cours n’a pas été trouvé dans le dépôt ; synthèse originale suivant les thèmes demandés. Sources : [CISA et partenaires](https://www.cyber.gov.au/publication/2026-minimum-elements-for-a-software-bill-of-materials-sbom), [CycloneDX](https://cyclonedx.org/capabilities/sbom/), [SPDX](https://spdx.dev/use/specifications/).
+- Étape 5 : `quality.yml` contrôle code et Dockerfile ; `image-security.yml` construit, lance Dive et Trivy. Le test local SPDX donne Syft=47 contre Trivy=48 : mêmes 38 paquets Debian et 8 Python, une image dans chaque export, et une entrée système `debian 13.7` supplémentaire chez Trivy. Ce test SBOM ne recherche pas les vulnérabilités.
+- Étape 8 : en CI keyless, le jeton OIDC GitHub (`id-token: write`) identifie le workflow ; Fulcio lie sa clé éphémère à cette identité par certificat, Rekor conserve les éléments publics de signature. Ce chemin CI n’est pas disponible dans notre terminal local ; aucun keyless exécuté. [Source Sigstore](https://docs.sigstore.dev/about/overview/).
+- Étape 9 : la vérification keyless rédigée dans `keyless-snippet.md` impose l’émetteur GitHub et l’identité du workflow de `clement-machtelinckx/linter-python-flask` ; elle n’est pas exécutée.
+- Étape 10 : une signature authentifie un contenu signé ; une attestation ajoute une déclaration liée à l’artefact. in-toto relie sujet identifié par digest, type de prédicat et contenu. Un SBOM attesté n’est pas une provenance de construction. [Source in-toto](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md).
+- SLSA Build : L0 aucune garantie ; L1 provenance générée et distribuée ; L2 provenance authentifiée produite par plateforme hébergée ; L3 plateforme durcie. Niveau démontrable du pipeline : L0, L1 non établi à partir des workflows, L2/L3 non démontrés. Justification dans `etape10-slsa.md` et [référentiel SLSA](https://slsa.dev/spec/v1.2/build-track-basics).

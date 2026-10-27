@@ -1,0 +1,4 @@
+Contrôle exécuté dans flask-tp2-tests:latest : python -m flake8 --config=.flake8 .
+Sortie : aucune.
+Code de retour : 0.
+Verdict : PASS.

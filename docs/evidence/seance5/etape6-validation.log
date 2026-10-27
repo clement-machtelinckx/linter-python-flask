@@ -1,0 +1,1 @@
+PASS : checksum OK, Cosign v2.4.1 installé dans ~/.local/bin/cosign ; exclusions vérifiées ; aucune clé privée ni .secrets/ suivi par Git ; fichiers protégés et workflows sans différence.

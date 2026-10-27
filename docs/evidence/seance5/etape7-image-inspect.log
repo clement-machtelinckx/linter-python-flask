@@ -1,0 +1,15 @@
+Name:      localhost:5001/linter-python-flask-api:local
+MediaType: application/vnd.oci.image.index.v1+json
+Digest:    sha256:5f21fdc9e986c3d2be21ab8108cd39a6a8526d228d5111414fc0bfb316671695
+           
+Manifests: 
+  Name:        localhost:5001/linter-python-flask-api:local@sha256:d74db2f2585fa1ac917b211ee415b24193d2c437ba673371d9ff78be3337972d
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/amd64
+               
+  Name:        localhost:5001/linter-python-flask-api:local@sha256:273ff11c914ade1751794246da7ae0052126d6f3ed02ed64b40eb169b32c7cb2
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown
+  Annotations: 
+    vnd.docker.reference.digest: sha256:d74db2f2585fa1ac917b211ee415b24193d2c437ba673371d9ff78be3337972d
+    vnd.docker.reference.type:   attestation-manifest

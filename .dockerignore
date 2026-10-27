@@ -20,6 +20,8 @@
 **/.pypirc
 **/.pgpass
 **/secrets
+**/.secrets
+**/cosign.key
 **/*credentials*
 **/*.pem
 **/*.key

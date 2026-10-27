@@ -1,0 +1,1 @@
+PASS : SBOM et preuves non vides ; Syft=47, Trivy=48 ; 46 paquets nom/version communs ; git diff workflows=0.

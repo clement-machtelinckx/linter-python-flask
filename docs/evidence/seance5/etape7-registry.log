@@ -1,0 +1,20 @@
+Unable to find image 'registry:2' locally
+2: Pulling from library/registry
+3493bf46cdec: Pulling fs layer
+44cf07d57ee4: Pulling fs layer
+6d464ea18732: Pulling fs layer
+bbbdd6c6894b: Pulling fs layer
+8e82f80af0de: Pulling fs layer
+6d464ea18732: Download complete
+3493bf46cdec: Download complete
+44cf07d57ee4: Download complete
+bbbdd6c6894b: Download complete
+8e82f80af0de: Download complete
+44cf07d57ee4: Pull complete
+bbbdd6c6894b: Pull complete
+3493bf46cdec: Pull complete
+8e82f80af0de: Pull complete
+6d464ea18732: Pull complete
+Digest: sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+Status: Downloaded newer image for registry:2
+0a2eca16ba2127406216219c229983f4c41817877f34b29717bfedd613a728ac

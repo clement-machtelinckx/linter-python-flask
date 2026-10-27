@@ -1,0 +1,23 @@
+Unable to find image 'aquasec/trivy:0.75.0' locally
+0.75.0: Pulling from aquasec/trivy
+e3614b31dd78: Pulling fs layer
+08201c795fbc: Pulling fs layer
+c716e0146a8a: Pulling fs layer
+e3614b31dd78: Download complete
+c716e0146a8a: Download complete
+c716e0146a8a: Pull complete
+08201c795fbc: Download complete
+08201c795fbc: Pull complete
+e3614b31dd78: Pull complete
+Digest: sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+Status: Downloaded newer image for aquasec/trivy:0.75.0
+2026-10-27T10:00:44Z	INFO	"--format spdx-json" disables security scanning. Specify "--scanners vuln" explicitly if you want to include vulnerabilities in the "spdx-json" report.
+2026-10-27T10:00:46Z	INFO	[python] Licenses acquired from one or more METADATA files may be subject to additional terms. Use `--debug` flag to see all affected packages.
+2026-10-27T10:00:46Z	INFO	Detected OS	family="debian" version="13.7"
+2026-10-27T10:00:46Z	INFO	Number of language-specific files	num=1
+
+📣 [34mNotices:[0m
+  - Version 0.76.1 of Trivy is now available, current version is 0.75.0
+
+To suppress version checks, run Trivy scans with the --skip-version-check flag
+

@@ -1,0 +1,4 @@
+$ git ls-files | grep -E 'cosign\.key|\.secrets|\.env$'
+Sortie : vide.
+Code grep : 1 (aucune correspondance attendue).
+Verdict : PASS.

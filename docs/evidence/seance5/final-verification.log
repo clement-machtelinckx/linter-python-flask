@@ -1,0 +1,78 @@
+
+Versions des outils
+Application:   syft
+Version:       1.51.1
+BuildDate:     2026-08-27T16:55:02Z
+GitCommit:     91a0032987d91b7411b52f6f5c185c5e7f775495
+GitDescription: v1.51.1
+Platform:      linux/amd64
+GoVersion:     go1.26.3
+Compiler:      gc
+SchemaVersion: 16.1.10
+  ______   ______        _______. __    _______ .__   __.
+ /      | /  __  \      /       ||  |  /  _____||  \ |  |
+|  ,----'|  |  |  |    |   (----`|  | |  |  __  |   \|  |
+|  |     |  |  |  |     \   \    |  | |  | |_ | |  . `  |
+|  `----.|  `--'  | .----)   |   |  | |  |__| | |  |\   |
+ \______| \______/  |_______/    |__|  \______| |__| \__|
+cosign: A tool for Container Signing, Verification and Storage in an OCI registry.
+
+GitVersion:    v2.4.1
+GitCommit:     9a4cfe1aae777984c07ce373d97a65428bbff734
+GitTreeState:  clean
+BuildDate:     2024-10-03T17:01:50Z
+GoVersion:     go1.22.7
+Compiler:      gc
+Platform:      linux/amd64
+
+jq-1.6
+curl 7.81.0 (x86_64-pc-linux-gnu) libcurl/7.81.0 OpenSSL/3.0.2 zlib/1.2.11 brotli/1.0.9 zstd/1.4.8 libidn2/2.3.2 libpsl/0.21.0 (+libidn2/2.3.2) libssh/0.9.6/openssl/zlib nghttp2/1.43.0 librtmp/2.3 OpenLDAP/2.5.19
+Release-Date: 2022-01-05
+Protocols: dict file ftp ftps gopher gophers http https imap imaps ldap ldaps mqtt pop3 pop3s rtmp rtsp scp sftp smb smbs smtp smtps telnet tftp 
+Features: alt-svc AsynchDNS brotli GSS-API HSTS HTTP2 HTTPS-proxy IDN IPv6 Kerberos Largefile libz NTLM NTLM_WB PSL SPNEGO SSL TLS-SRP UnixSockets zstd
+OpenSSL 3.0.2 15 Mar 2022 (Library: OpenSSL 3.0.2 15 Mar 2022)
+Client=28.4.0 Server=28.4.0
+Docker Compose version v2.39.4-desktop.1
+Version: 0.75.0
+
+Checksums des téléchargements
+syft_1.51.1_linux_amd64.tar.gz: OK
+cosign-linux-amd64: OK
+
+Exclusions et fichiers protégés
+.gitignore:196:cosign.key	cosign.key
+.gitignore:193:.secrets/	.secrets/pip_token.txt
+.gitignore:196:cosign.key	docs/evidence/seance5/keys/cosign.key
+PASS : aucun fichier sensible suivi ; permissions privées ; SBOM original et extrait identiques ; test négatif établi.
+Comptages : Python 3.12 CycloneDX=2755 ; API CycloneDX=2186 ; Syft SPDX=47 ; Trivy SPDX=48 ; SBOM certifié SPDX=47.
+
+Recherche de clés privées hors cosign.key ignorée
+PASS : aucun marqueur de clé privée hors fichier cosign.key ignoré.
+
+Vérification de signature
+
+Verification for localhost:5001/linter-python-flask-api@sha256:5f21fdc9e986c3d2be21ab8108cd39a6a8526d228d5111414fc0bfb316671695 --
+The following checks were performed on each of these signatures:
+  - The cosign claims were validated
+  - Existence of the claims in the transparency log was verified offline
+  - The signatures were verified against the specified public key
+
+Vérification de l’attestation locale (sans inclusion Rekor)
+WARNING: Skipping tlog verification is an insecure practice that lacks of transparency and auditability verification for the attestation.
+
+Verification for localhost:5001/linter-python-flask-api@sha256:5f21fdc9e986c3d2be21ab8108cd39a6a8526d228d5111414fc0bfb316671695 --
+The following checks were performed on each of these signatures:
+  - The cosign claims were validated
+  - The signatures were verified against the specified public key
+PASS : attestation signée, digest et prédicat vérifiés ; 47 paquets.
+
+Services Compose
+NAME                               IMAGE                                                                                                 COMMAND                  SERVICE      CREATED         STATUS                        PORTS
+linter-python-flask-api-python-1   linter-python-flask-api:local                                                                         "/usr/bin/python3.13…"   api-python   2 minutes ago   Up About a minute (healthy)   0.0.0.0:5000->5000/tcp, [::]:5000->5000/tcp
+linter-python-flask-db-1           cgr.dev/chainguard/postgres@sha256:a1b4ecd0b5ae8cf2ef961bc9ff82682d61d62f6f29412e9e8d5934acaef0e475   "/usr/bin/docker-ent…"   db           2 minutes ago   Up 2 minutes (healthy)        
+api-python
+db
+
+PASS : vérifications de la séance 5 terminées.
+
+PASS final : inventaire exhaustif de 90 fichiers non vides ; documents finaux contrôlés ; aucun marqueur privé hors clé ignorée ; aucun fichier applicatif/workflow modifié ; aucun fichier stagé.

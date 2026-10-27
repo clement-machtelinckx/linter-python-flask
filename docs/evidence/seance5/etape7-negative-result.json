@@ -1,0 +1,6 @@
+{
+  "expected_failure": true,
+  "exit_code": 12,
+  "no_matching_signatures": true,
+  "verdict": "PASS"
+}
