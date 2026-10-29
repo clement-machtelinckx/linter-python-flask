@@ -370,151 +370,169 @@ is kept separate. Final merge still requires the latest CI results and Benoît's
 
 # TP 2 — Industrialisation BuildKit, traçabilité supply chain et intégrité OCI
 
-Sections 8 à 10 : complément du rapport TP 1, rédigé en français à la demande du correcteur.
-Instantané : **2026-10-29**, branche `feat/34-tp2-buildkit-supply-chain`
-([issue #34](https://github.com/clement-machtelinckx/linter-python-flask/issues/34)).
-L'Étape 1 a été fusionnée par la [PR #35](https://github.com/clement-machtelinckx/linter-python-flask/pull/35)
-(détail des exigences et preuves brutes : [docs/tp2-etape1-exigences.md](docs/tp2-etape1-exigences.md),
-[docs/tp2-etape1-rapport.md](docs/tp2-etape1-rapport.md)) ; toutes les preuves ci-dessous ont été
-rejouées le 2026-10-29 sur l'image construite depuis ce commit (builder Buildx `ci-builder`,
-pilote `docker-container`, émulation arm64 QEMU via `tonistiigi/binfmt`, registre local
-`tp2-registry:5000` tenant lieu de registre distant tant que `v1.1.0` n'est pas publiée).
+Sections 8 à 10 : synthèse technique en français, mise à jour le **2026-10-29** à partir de
+l'[audit final][audit-tp2] de `main` au commit `bb6f32c7b7b421d499c27e979102d80cd9e1cb0f`.
+La release de référence est **v1.1.1**, construite depuis `2381039ddea4924fe11f9f7b89176fe2324ef8d6` ;
+seul le README diffère entre ces deux commits. Les essais datés de l'audit sont repris ici,
+sans nouvelle mesure de build. Le [rapport Étape 1](docs/tp2-etape1-rapport.md) conserve les
+essais historiques en registre local antérieurs à la publication GHCR ; leurs fichiers de
+preuve hors dépôt ne sont pas nécessaires aux vérifications publiques du §10.
 
 ## 8. Preuves d'industrialisation BuildKit (Étape 1)
 
 ### 8.1 Cache persistant hors couches
 
-[Dockerfile](Dockerfile) commence par `# syntax=docker/dockerfile:1` ; l'étage `builder`
-installe les dépendances avec `RUN --mount=type=cache,target=/root/.cache/pip`. Le
-`--no-cache-dir` du TP 1 a disparu : le cache pip vit dans BuildKit, jamais dans une couche.
+Objectif : réutiliser les téléchargements après modification du manifeste, sans embarquer
+le cache. Le [Dockerfile](Dockerfile) active `# syntax=docker/dockerfile:1` et monte
+`type=cache,target=/root/.cache/pip` pendant l'installation dans le builder.
 
-| Build (`docker buildx build --progress=plain`) | Étape pip | `Downloading` | `Using cached` |
-|---|---|---|---|
-| À froid : cache de montage purgé (`buildx prune --filter type=exec.cachemount`), couches invalidées | 26,5 s (rapport Étape 1, amd64 + arm64) | 8 wheels (amd64) / 20 lignes en bi-arch | 0 |
-| À chaud : `requirements-runtime.txt` modifié (commentaire), même builder | **1,2 s** | **0** | 8 |
-| Rebuild sans modification | 3,2 s au total | 0 | 13 étapes `CACHED` |
+L'audit T19–T23 utilise une copie du code `bb6f32c`, Docker 28.4.0, Buildx 0.28.0,
+un builder `docker-container` neuf dédié et **linux/amd64 uniquement**, sans purge.
+Les essais sans secret puis avec jeton invalide échouent avant pip (code 1). T21 est donc
+froid pour pip, mais certaines couches de base ont déjà été tirées par T19.
 
-Image finale (`docker save … | tar -t`) : **0** chemin `.cache/`, `__pycache__` ou `.pyc`.
+| Essai de l'audit | Durée totale | RUN d'installation (pip inclus) | `Downloading` | `Using cached` | Couches `CACHED` |
+|---|---:|---:|---:|---:|---:|
+| T21 — premier build valide | 8,722 s | 5,4 s | 8 | 0 | 3 |
+| T22 — commentaire ajouté à la copie de `requirements-runtime.txt`, même builder | 4,863 s | 2,2 s | 0 | 8 | 5 |
+| T23 — rebuild sans nouvelle modification | 2,406 s | `CACHED` | 0 | 0 | 7 |
 
-Constat honnête : en build bi-architecture, la durée totale ne baisse pas (29,9 s contre 26,5 s)
-car l'étape arm64 émulée par QEMU domine (18,8 s → 26,6 s). Le cache de montage supprime le
-réseau, pas le CPU émulé ; le gain net est visible sur la seule étape pip.
+Les durées totales sont chronométrées autour de la commande ; celles du RUN incluent
+validation du secret, pip et nettoyage. La commande a la forme suivante (`BUILDER_TEST` :
+builder dédié, `CONTEXTE_TEST` : copie de travail, `JETON_TEST` : fichier éphémère au format du §8.2) :
+
+```bash
+docker buildx build --builder "$BUILDER_TEST" --platform linux/amd64 --progress=plain \
+  --load --secret "id=pip_token,src=$JETON_TEST" --tag tp2-cache:mesure "$CONTEXTE_TEST"
+```
+
+Les huit `Using cached` de T22 prouvent la réutilisation du **cache pip** malgré la
+réexécution du RUN ; les étapes `CACHED` de T23 relèvent du **cache des couches**.
+À titre historique, le rapport Étape 1 mesure 26,5 s puis 29,9 s après retrait d'`itsdangerous`
+en amd64 + arm64 sous QEMU : ce scénario différent n'est pas comparé aux mesures AMD64 ci-dessus.
 
 ### 8.2 Étanchéité du secret de build
 
-Le même `RUN` monte `--mount=type=secret,id=pip_token,required=true` : le jeton est projeté en
-tmpfs sous `/run/secrets/pip_token` le temps de l'instruction, vérifié par
-`grep -Eq '^tok_[0-9a-f]{48}$'` sans jamais être affiché, puis démonté. Aucun `ARG`, aucun
-`ENV`. Source locale `secrets/pip_token.txt` : exclue de Git (`.gitignore` `secrets/`) et du
-contexte (`.dockerignore` `**/secrets`). Le jeton n'apparaît dans aucune commande ci-dessous :
-seules ses occurrences sont comptées (`grep -cFf secrets/pip_token.txt`).
+Le même RUN monte `type=secret,id=pip_token,required=true` temporairement en mémoire sous
+`/run/secrets/pip_token` et vérifie `grep -Eq '^tok_[0-9a-f]{48}$'`, sans afficher le jeton.
+Aucun `ARG` ni `ENV` ne transporte sa valeur. `secrets/pip_token.txt` est exclu de Git
+(`secrets/`) et du contexte Docker (`**/secrets`). Les contrôles T19–T20 et T32–T34 donnent :
 
-| Contrôle (image finale `tp2:a3` et étage `tp2:builder`) | Résultat |
+| Contrôle de l'audit, image AMD64 et étage builder | Résultat |
 |---|---|
-| `docker history --no-trunc` + `docker image inspect` | 0 occurrence |
-| Système de fichiers complet (`docker save \| tar -xO \| grep -a`) | 0 occurrence |
-| `/run/secrets` dans l'étage builder après le build | absent (démonté) |
-| Trivy 0.75.0 `--scanners secret --secret-config .trivy-secret.yaml` | 0 secret |
-| Contrôle positif : même règle sur le dossier `secrets/` | CRITICAL 1 — la règle détecte le jeton, le silence sur l'image est donc une preuve |
-| Négatif : build sans `--secret` (`--no-cache`) | échec `secret pip_token: not found` |
-| Négatif : jeton au mauvais format (`--no-cache`) | échec `exit code: 1` sur le `grep` |
+| `docker history --no-trunc`, `docker image inspect` et système de fichiers exporté | 0 occurrence du jeton simulé |
+| `/run/secrets/pip_token` après le RUN, dans les deux étages | absent |
+| Cache pip, `__pycache__` et `.pyc` dans le runtime final | 0 chemin |
+| Trivy 0.75.0 sur l'archive de l'image, règle [.trivy-secret.yaml](.trivy-secret.yaml) | 0 secret, code 0 |
+| Même règle sur le fichier de contrôle positif | 1 secret détecté, code 1 |
+| Build non caché sans secret / avec format invalide | échec attendu, code 1 dans les deux cas |
 
-Piège rencontré : le secret ne fait pas partie de la clé de cache BuildKit. Sans `--no-cache`,
-un build sans secret réussit sur une étape `CACHED` ; les tests négatifs ne sont probants
-qu'avec `--no-cache`. La CI automatise ce contrôle à chaque build
-([image-security.yml](.github/workflows/image-security.yml), étape « Build secret leak gate »,
-règle versionnée [.trivy-secret.yaml](.trivy-secret.yaml), contrôle positif inclus).
+La valeur du secret ne participe pas à la clé de cache BuildKit : les essais négatifs
+utilisent `--no-cache`. La CI automatise les contrôles de fuite et le contrôle positif dans
+[Build secret leak gate](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/40875268066/job/123452475987).
 
 ### 8.3 Multi-architecture déclarative
 
-[docker-bake.hcl](docker-bake.hcl) : variables `REGISTRY`, `IMAGE`, `TAGS` (`list(string)`,
-CSV dans l'environnement) et `CACHE_REF` ; cible `api` pour `linux/amd64` et `linux/arm64` ;
-secret `pip_token` lié ; `cache-from`/`cache-to type=registry … mode=max` ; sortie
-`type=registry` (un résultat multi-arch ne peut pas être `--load`). Validation :
-`docker buildx bake -f docker-bake.hcl --print`.
+[docker-bake.hcl](docker-bake.hcl) définit `REGISTRY`, `IMAGE`, `TAGS` (liste CSV) et `CACHE_REF`,
+les plateformes `linux/amd64` et `linux/arm64`, le secret, le cache registre importé/exporté en
+`mode=max` et la sortie `type=registry`. `docker buildx bake -f docker-bake.hcl --print` exige
+que le fichier source du secret existe ; cette résolution a réussi dans l'audit T39.
+La release utilise Buildx **0.38.1** : sa surcharge `--set api.secret=…` n'est pas reconnue
+par le Buildx local 0.28.0 (T24), ce qui est distinct de la validité du HCL.
 
 ```bash
-docker buildx imagetools inspect --raw 127.0.0.1:5001/linter-python-flask:v1.1.0-test \
-  | jq -r '.mediaType, (.manifests[] | "\(.platform.os)/\(.platform.architecture) \(.digest)")'
+docker buildx imagetools inspect ghcr.io/clement-machtelinckx/linter-python-flask:v1.1.1
 ```
 
-```text
-application/vnd.oci.image.index.v1+json
-linux/amd64   sha256:2dbe02db1efe4ef641706d760618f045a2d0aa127020ff0f59a80b1561084ae2
-linux/arm64   sha256:258f7ef8cb394c14f8c34bec1447f8f01da1124dc7156ff75b69d15a30386f0c
-unknown/unknown sha256:a664a01f9563…   (attestation BuildKit, provenance)
-unknown/unknown sha256:a37ba8bab482…   (attestation BuildKit, SBOM)
-```
-
-Index `sha256:ef359de5fc9daf478953b1747dea39db834b8d4d260de1c893c61835b41d8386` ; référence de
-cache `:buildcache` = manifeste OCI de **117 couches** (`mode=max` exporte toutes les étapes,
-builder compris). Rebuild sur builder neuf : étapes `CACHED` importées du registre, 0
-téléchargement. Limite connue : le contenu d'un `--mount=type=cache` n'est jamais exporté ;
-sur runner éphémère, c'est le cache registre qui évite la reconstruction. Exécution arm64
-vérifiée au rapport Étape 1 (`platform.machine()` → `aarch64`). La même preuve sur `ghcr.io`
-est produite par le job `publish` à chaque release (étape « Prove the unified OCI index »).
+Résultat public (T42) : un **index OCI unique**, deux manifestes `linux/amd64` et `linux/arm64`
+(digests complets au §10.1). Les entrées `unknown/unknown` sont des attestations BuildKit.
+Les deux runtimes publiés s'exécutent avec l'UID 65532 ; ARM64 est vérifié sous émulation
+(`platform.machine()` : `aarch64`, T37–T38), sans mesure sur matériel ARM natif.
+Les logs du [job publish](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/40871325590/job/123438882455)
+montrent import du cache GHCR, étapes `CACHED` et export. Ce cache externe contient les
+couches, y compris celles du builder en `mode=max`, mais **pas le contenu du montage pip**.
 
 ## 9. Analyse de traçabilité et gouvernance VEX (Étape 2)
 
-### 9.1 SBOM aux deux standards
+### 9.1 SBOM aux deux standards et périmètre des inventaires
 
-Syft 1.42.0 (binaire vérifié par checksum en CI) inventorie l'image **par analyse statique**,
-sans l'exécuter, et produit en une passe [sbom.cdx.json](sbom.cdx.json) (CycloneDX 1.6, OWASP)
-et [sbom.spdx.json](sbom.spdx.json) (SPDX 2.3, ISO/IEC 5962). Le composant racine porte la
-référence et le digest de l'image (`--source-name` / `--source-version`). En CI, les deux
-fichiers sont archivés en artefact `sbom-<sha>` (90 jours) ; ceux de la racine décrivent la
-variante `linux/amd64` du commit courant.
+Objectif : inventorier statiquement les paquets système et Python, puis rattacher chaque
+inventaire à sa source. Syft **1.42.0** produit CycloneDX **1.6** et SPDX **2.3** sans exécuter
+le conteneur. L'audit T14 valide les deux formats pour Git, la CI et les deux plateformes.
+
+| Inventaire | Architecture et origine démontrées | Identifiant source et portée |
+|---|---|---|
+| [sbom.cdx.json](sbom.cdx.json) / [sbom.spdx.json](sbom.spdx.json) à la racine | Instantanés générés le 2026-10-29 à 06:11:28 UTC, ajoutés par la [PR #37](https://github.com/clement-machtelinckx/linter-python-flask/pull/37) au commit `1fe603fcff4a31f9b27c96edb0c9f27185ccb353` ; PURL Debian `amd64` ou `all` | Version source déclarée : `sha256:8df539d2a749256476f8b0a8b11548356b950be9f20d332019198bfc5f13c039`. Le commit d'ajout ne prouve pas le SHA de construction ; le type config/manifeste de cet identifiant n'est pas établi. |
+| [sbom-bb6f32c7b7b421d499c27e979102d80cd9e1cb0f](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/40875268066) | Image AMD64 du commit `bb6f32c`, générée à 12:41:43 UTC | `sha256:3058b6797ddfa05773d778e73a69b10f4cec0011193c0c379101dce2f42ee11f` : **ID de configuration Docker**, passé par `--source-version` depuis le champ `.Id` de `docker image inspect` dans le workflow. |
+| [release-sbom-v1.1.1](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/40871325590), fichiers `sbom-amd64.*.json` | `linux/amd64`, commit de release `2381039`, génération à 12:13:11 UTC | **Digest du manifeste AMD64** du §10.1, source : manifeste distant de la plateforme ; CycloneDX attaché à ce manifeste par attestation signée. |
+| Même artefact, fichiers `sbom-arm64.*.json` | `linux/arm64`, même commit de release, génération à 12:14:21 UTC | **Digest du manifeste ARM64** du §10.1 ; même chaîne de génération et d'attestation. |
+
+La racine SPDX porte aussi un checksum SHA256 distinct,
+`0b2b5751e738470407f8f9566daff5f03ff6edbd124558bd69c1d01ce3563d58` : ces champs ne suffisent
+pas à reconstituer une association publique certaine. Les SBOM versionnés sont conservés
+tels quels ; **leur identité exacte avec la release v1.1.1 n'est pas démontrée**.
+L'index OCI du §10.1 regroupe les plateformes ; il n'est ni un ID de configuration
+Docker, ni le sujet des attestations SBOM, qui ciblent chacune un manifeste de plateforme.
+
+L'audit T15–T16 compte **47 paquets** dans chacun des inventaires et vérifie les dépendances
+Flask. CycloneDX contient aussi les fichiers : 2 186 composants au total pour Git et AMD64,
+2 185 pour ARM64. Les 46 PURL de Git, de la CI main et de la release AMD64 sont égaux en
+ensemble ; cela ne rend pas les images ou les documents identiques. Les PURL ARM64 diffèrent.
 
 ```bash
-# Volume de composants (CycloneDX liste aussi les fichiers : on les exclut pour comparer)
-jq '[.components[] | select(.type != "file")] | length' sbom.cdx.json      # 47
-jq '.packages | length' sbom.spdx.json                                      # 47
-jq -r '.components | group_by(.type) | map("\(.[0].type)=\(length)") | join(", ")' sbom.cdx.json
-# file=2139, library=46, operating-system=1
-
-# Identifiants universels (PURL)
-jq -r '.components[] | select(.name | test("^(flask|werkzeug|psycopg2)")) | .purl' sbom.cdx.json
-# pkg:pypi/flask@3.1.3  pkg:pypi/werkzeug@3.1.9  pkg:pypi/psycopg2-binary@2.9.13
-
-# Licences consolidées
-jq -r '[.packages[].licenseConcluded] | unique | join(", ")' sbom.spdx.json
-# BSD-3-Clause, LicenseRef-…, MIT, NOASSERTION
-jq -r '.packages[] | select(.name | test("^(flask|werkzeug|psycopg2)")) | "\(.name) \(.licenseDeclared)"' sbom.spdx.json
-# flask BSD-3-Clause / werkzeug BSD-3-Clause / psycopg2-binary LicenseRef-LGPL-with-exceptions
+jq '{source: .metadata.component, outil: .metadata.tools}' sbom.cdx.json
+jq '[.components[] | select(.type != "file")] | length' sbom.cdx.json   # 47
+jq '.packages | length' sbom.spdx.json                                 # 47
+jq -r '.components[] | select(.purl != null) | .purl' sbom.cdx.json      # 46 PURL
+jq -r '[.packages[].licenseConcluded] | unique[]' sbom.spdx.json         # 4 valeurs
 ```
 
-CycloneDX reporte les licences déclarées par Debian au niveau fichier (86 identifiants
-uniques : BSD-3-Clause, MIT, GPL-2.0-or-later, LGPL-2.1…) ; SPDX consolide par paquet.
+Les huit paquets Python incluent Flask 3.1.3, Werkzeug 3.1.9 et psycopg2-binary 2.9.13.
+Les licences consolidées SPDX sont `BSD-3-Clause`, `MIT`, une `LicenseRef` et `NOASSERTION` ;
+CycloneDX présente 86 identifiants de licence en incluant les fichiers. `NOASSERTION`
+signale une information non conclue. Les artefacts SBOM sont conservés 90 jours ; les
+rapports de sécurité détaillés de main seulement 7 jours. Le §10 extrait les CycloneDX
+certifiés depuis GHCR, indépendamment de la disponibilité des archives GitHub. Les archives
+se retrouvent dans la rubrique Artefacts des runs liés ; leur téléchargement nécessite une
+session GitHub autorisée, tandis que la vérification GHCR du §10 est publique.
 
 ### 9.2 Corrélation sur SBOM et qualification OpenVEX
 
-[image-security.yml](.github/workflows/image-security.yml) ne rescanne pas l'image : Grype 0.108.0
-corrèle **le SBOM**. Deux passes : un rapport complet (non corrigées incluses, VEX appliqué,
-archivé en artefact) puis la porte bloquante définie dans [.grype.yaml](.grype.yaml)
-(`fail-on-severity: high`, `only-fixed: true`, `vex-documents: [security.vex.json]`).
-Les portes Trivy du TP 1 sont conservées : c'est le double scan.
+Grype **0.108.0** analyse directement le SBOM ; Trivy conserve son scan complémentaire de
+l'image. Le [workflow sécurité](.github/workflows/image-security.yml) archive un rapport
+complet, puis applique [.grype.yaml](.grype.yaml) : `fail-on-severity: high`, `only-fixed: true`
+et `vex-documents: [security.vex.json]`. Les commandes suivantes sont fournies pour
+reproduction depuis la racine ; les chiffres du tableau proviennent des essais datés de l’audit :
 
-| Passe (base Grype du 2026-10-28) | Correspondances | Exemptées par VEX |
-|---|---|---|
-| Sans VEX | 172, dont 4 Critical | — |
-| Rapport complet avec VEX | 168, **0 Critical** | **4** (`namespace: vex`, `vex-status: not_affected`) |
-| Porte `.grype.yaml` | 0 bloquante (aucune HIGH/CRITICAL corrigible), exit 0 | — |
+```bash
+# Rapport complet avec VEX, vulnérabilités sans correctif incluses
+GRYPE_ONLY_FIXED=false GRYPE_FAIL_ON_SEVERITY='' grype sbom:sbom.cdx.json --output json
+# Porte bloquante HIGH/CRITICAL corrigibles, VEX appliqué
+grype sbom:sbom.cdx.json --config .grype.yaml --output table
+```
 
-Les 168 restantes sont `wont-fix` / `not-fixed` Debian : elles restent visibles dans le rapport
-complet, elles ne sont pas exemptées. Une seule exemption existe, auditable dans
-[security.vex.json](security.vex.json) (OpenVEX 0.2.0) :
+| Passe de l'audit T25–T27, SBOM racine, base Grype du 2026-10-29 à 06:23:34 UTC | Résultat |
+|---|---|
+| Rapport complet sans VEX | 174 correspondances, dont 4 Critical |
+| Rapport complet avec VEX | 170 actives, 0 Critical ; 4 retirées par VEX (`ignoredMatches`, `namespace: vex`) |
+| Porte `.grype.yaml` | 0 correspondance active après politiques VEX/only-fixed, code 0 |
 
-- **CVE-2026-19445** (Critical, CPython `ssl`, rappel SNI TLS), remontée 4 fois : paquets
-  `libpython3.13-minimal`, `libpython3.13-stdlib`, `python3.13-minimal`, `python3.13-venv`
-  `3.13.5-2+deb13u5`, PURL `arch=amd64` et `arch=arm64` (une déclaration couvre les deux variantes).
-- Statut `not_affected`, justification normalisée `vulnerable_code_not_in_execute_path`.
-- Justification technique : l'API sert du HTTP en clair — [app.py](app.py) appelle
-  `app.run(host, port)` sans `ssl_context`, donc aucun `SSLContext` et aucun rappel SNI n'est
-  jamais créé (Werkzeug peut importer `ssl`, mais le chemin du rappel vulnérable n'est pas
-  exécuté — vérifié le 2026-10-29). Justification métier : le conteneur n'expose pas de TLS ;
-  s'il en faut, il est terminé en amont (reverse proxy / équilibreur). Debian classe la CVE
-  `wont-fix` pour cette version, donc aucun correctif n'est attendu par simple rebuild.
-- Révision : la déclaration est réévaluée à chaque changement de digest de l'image de base.
+Le [rapport CI de main](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/40875268066/job/123452475987)
+retrouve 170 correspondances Grype après VEX : 120 `wont-fix`, 50 `not-fixed`, dont 41 High.
+Trivy y rapporte 174 occurrences, dont 26 HIGH, **0 HIGH/CRITICAL corrigible**. Ces portes
+n'affirment pas l'absence de vulnérabilités. Les anciens nombres 172→168 (base du 28 octobre)
+sont un autre instantané ; tout nouveau scan dépend de la date de sa base.
+
+[security.vex.json](security.vex.json), valide OpenVEX 0.2.0 (T18), contient une seule déclaration :
+**CVE-2026-19445**, CPython `ssl`, rappel SNI TLS, pour les quatre paquets Debian
+`libpython3.13-minimal`, `libpython3.13-stdlib`, `python3.13-minimal`, `python3.13-venv`
+`3.13.5-2+deb13u5`, chacun avec ses PURL AMD64 et ARM64. Statut : `not_affected` ; justification :
+`vulnerable_code_not_in_execute_path`. L'[API](app.py) sert du HTTP sans `ssl_context` :
+Werkzeug peut importer `ssl`, mais ce serveur ne crée pas le callback SNI vulnérable.
+Le conteneur n'assure pas la terminaison TLS. L'exemption doit être réévaluée si ce chemin,
+le point d'entrée ou le digest de base change. `wont-fix` est l'état rapporté par Grype ;
+[Debian](https://security-tracker.debian.org/tracker/CVE-2026-19445) indique `no-dsa (Minor issue)`,
+ce qui n'est pas une garantie d'absence de correctif futur.
 
 ## 10. Commandes de vérification publique pour l'évaluateur (Étape 2)
 
@@ -533,50 +551,75 @@ celle ci-dessous.
 | Élément | Valeur |
 |---|---|
 | Image | `ghcr.io/clement-machtelinckx/linter-python-flask` |
-| Tag SemVer | `v1.1.1` (run [40871325590](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/40871325590), 2026-10-29 ; tag de commit `sha-2381039ddea4`). La `v1.1.0` a été poussée **non signée** — Cosign 3 a rejeté l'env `COSIGN_OIDC_ISSUER`, voir #38 — et reste en l'état : remplacée, pas réécrite |
+| Tag SemVer | `v1.1.1` (run [40871325590](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/40871325590), 2026-10-29 ; tag d’image `sha-2381039ddea4`). La `v1.1.0` a été poussée **non signée** — Cosign 3 a rejeté l'env `COSIGN_OIDC_ISSUER`, voir [échec de publication](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/40844848852) — et reste en l'état : remplacée, pas réécrite |
+| Commit source | `2381039ddea4924fe11f9f7b89176fe2324ef8d6` (tag Git `v1.1.1`) |
 | Digest de l'index | `sha256:d42185600d94df2717e26af1cd98fb360d3790142eeff61421cef601aeffe136` |
-| Manifeste `linux/amd64` | `sha256:4b6f11e2aa9d218bb1068e70dab1628cabfc4bdeb8321058f90dea0b5559824b` — signé, attestation CycloneDX (47 composants), Rekor 3566878669 |
-| Manifeste `linux/arm64` | `sha256:a18b70c9a61d4890751dfe967e705007c1062c15ab5ec4ed1c36fa6de9febc4e` — signé, attestation CycloneDX (47 composants), Rekor 3566880150 |
+| Manifeste `linux/amd64` | `sha256:4b6f11e2aa9d218bb1068e70dab1628cabfc4bdeb8321058f90dea0b5559824b` — signé, attestation CycloneDX (47 paquets hors fichiers), Rekor 3566878669 |
+| Manifeste `linux/arm64` | `sha256:a18b70c9a61d4890751dfe967e705007c1062c15ab5ec4ed1c36fa6de9febc4e` — signé, attestation CycloneDX (47 paquets hors fichiers), Rekor 3566880150 |
 | Signature de l'index | Rekor 3566877796 |
 | Identité du signataire | `https://github.com/clement-machtelinckx/linter-python-flask/.github/workflows/publish_to_ghcr.yml@refs/tags/v1.1.1` |
 | Émetteur OIDC | `https://token.actions.githubusercontent.com` |
 
-### 10.2 Vérification depuis un terminal (Cosign 2.x ou 3.x, `jq`)
+### 10.2 Vérification depuis un terminal (Cosign 2.4.1, Docker Buildx et `jq`)
 
-Les signatures sont publiées au format historique (tags `.sig`/`.att`), vérifiable sans option supplémentaire par Cosign 2.x comme par Cosign 3.x (testé le 2026-10-29 avec 2.4.1 et 3.0.6 ; 3.x retombe sur ce format quand aucun bundle Sigstore n'est attaché).
+Objectif : vérifier l'identité, l'émetteur, la transparence et le lien SBOM/manifeste,
+puis extraire les deux inventaires certifiés. Les signatures utilisent le format historique
+(tags `.sig`/`.att`). La compatibilité Cosign 3.0.6 avait été rapportée par la PR #41 ;
+les vérifications indépendantes de l'audit T08–T13 utilisent **2.4.1**, sans désactivation
+des contrôles cryptographiques. Les commandes ci-dessous ciblent exactement `v1.1.1`.
+Le sous-shell confine les options strictes ; un échec conserve un code de retour non nul.
+Les fichiers restent consultables dans le répertoire affiché en fin de vérification.
 
 ```bash
+(
+set -euo pipefail
 IMAGE=ghcr.io/clement-machtelinckx/linter-python-flask
-DIGEST=sha256:d42185600d94df2717e26af1cd98fb360d3790142eeff61421cef601aeffe136   # index v1.1.1, jamais le tag mutable
-IDENTITY='^https://github\.com/clement-machtelinckx/linter-python-flask/\.github/workflows/publish_to_ghcr\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+DIGEST=sha256:d42185600d94df2717e26af1cd98fb360d3790142eeff61421cef601aeffe136
+IDENTITY='^https://github\.com/clement-machtelinckx/linter-python-flask/\.github/workflows/publish_to_ghcr\.yml@refs/tags/v1\.1\.1$'
 ISSUER=https://token.actions.githubusercontent.com
+DOSSIER_VERIF=$(mktemp -d)
 
-# 1. Index multi-arch : amd64 + arm64 sous un seul digest, et digest de chaque manifeste
+# Index multi-arch : résolution des deux manifestes depuis le registre
 docker buildx imagetools inspect "$IMAGE@$DIGEST"
-AMD64=$(docker buildx imagetools inspect "$IMAGE@$DIGEST" --raw \
-  | jq -r '.manifests[] | select(.platform.architecture == "amd64") | .digest')
+docker buildx imagetools inspect "$IMAGE@$DIGEST" --raw > "$DOSSIER_VERIF/index.json"
+AMD64=$(jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' "$DOSSIER_VERIF/index.json")
+ARM64=$(jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64") | .digest' "$DOSSIER_VERIF/index.json")
 
-# 2. Signatures keyless (index puis manifeste) : identité + émetteur, transparence Rekor
-cosign verify "$IMAGE@$DIGEST" \
-  --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER"
-cosign verify "$IMAGE@$AMD64" \
-  --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER"
+# Trois signatures keyless : index, AMD64 et ARM64
+for digest in "$DIGEST" "$AMD64" "$ARM64"; do
+  cosign verify "$IMAGE@$digest" \
+    --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER"
+done
 
-# 3. Attestation SBOM du manifeste amd64 : signature valide ET sujet = digest du manifeste
-cosign verify-attestation "$IMAGE@$AMD64" --type cyclonedx \
-  --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER" \
-  | jq -r '.payload' | base64 -d | jq '{predicateType, subject}'
-
-# 4. Extraction du SBOM certifié depuis le registre (même chose avec arm64)
-cosign verify-attestation "$IMAGE@$AMD64" --type cyclonedx \
-  --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER" \
-  | jq -r '.payload' | base64 -d | jq '.predicate' > sbom-certifie-amd64.cdx.json
-jq '[.components[] | select(.type != "file")] | length' sbom-certifie-amd64.cdx.json
+# Deux attestations : authenticité, prédicat normalisé, sujet exact, extraction
+for platform in amd64 arm64; do
+  case "$platform" in
+    amd64) digest=$AMD64 ;;
+    arm64) digest=$ARM64 ;;
+  esac
+  cosign verify-attestation "$IMAGE@$digest" --type cyclonedx \
+    --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER" \
+    | jq -r '.payload' | base64 -d > "$DOSSIER_VERIF/statement-$platform.json"
+  jq -e --arg d "${digest#sha256:}" \
+    '.predicateType == "https://cyclonedx.org/bom" and any(.subject[]; .digest.sha256 == $d)' \
+    "$DOSSIER_VERIF/statement-$platform.json"
+  jq '.predicate' "$DOSSIER_VERIF/statement-$platform.json" > "$DOSSIER_VERIF/sbom-certifie-$platform.cdx.json"
+  jq '[.components[] | select(.type != "file")] | length' "$DOSSIER_VERIF/sbom-certifie-$platform.cdx.json"
+done
+printf 'SBOM certifiés disponibles dans : %s\n' "$DOSSIER_VERIF"
+)
 ```
 
-Ces commandes ont été rejouées le 2026-10-29 depuis un poste sans session GHCR (pull anonyme) avec Cosign 2.4.1 puis 3.0.6 : trois signatures valides, deux attestations dont le sujet est le digest du manifeste, 47 composants chacune ; une identité étrangère est rejetée et `v1.1.0` ne vérifie pas.
+Résultat : **trois signatures valides**, deux sujets égaux aux digests de leurs manifestes,
+**47 paquets par SBOM**. T16 vérifie l'égalité de chaque prédicat avec le CycloneDX de
+l'artefact de release. Une identité étrangère est rejetée (code 12, T13) ; l'index v1.1.0
+n'a pas de signature (code 10, T40). Le [job admission](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/40871325590/job/123440915746)
+effectue indépendamment ces vérifications depuis GHCR et a réussi. Ces résultats ne
+s'appuient pas sur une paire de clés ni sur un registre local de démonstration.
 
-La mécanique sign → attest → verify → contrôle du sujet a été rejouée localement le 2026-10-29
-contre le registre local avec une paire de clés jetable (le keyless exige le jeton OIDC
-d'Actions) : signature vérifiée sur le digest, `predicateType https://cyclonedx.org/bom`,
-sujet égal au digest, 47 composants attestés, et une clé étrangère rejetée.
+Le rapport T01–T44 reste sur `audit/tp2-conformite-finale` : le commit lié n'est pas
+encore intégré à `main`. Conserver cette branche jusqu'à son intégration par une PR
+documentaire dédiée, à valider en revue ; le permalien fixe la version consultée, mais ne
+garantit pas à lui seul la conservation du commit. Le rapport n'est pas recopié dans cette PR.
+
+[audit-tp2]: https://github.com/clement-machtelinckx/linter-python-flask/blob/d8551c7bbcb51404192e129048413815fd41b4b8/docs/audits/tp2-audit-manuel.md
