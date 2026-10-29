@@ -12,6 +12,12 @@ concurrency:
   group: ghcr-release
   cancel-in-progress: false
 
+env:
+  IMAGE: ghcr.io/clement-machtelinckx/linter-python-flask
+  # Identity of the keyless signature: this workflow, on a release tag, via GitHub OIDC.
+  COSIGN_IDENTITY_REGEXP: ^https://github\.com/clement-machtelinckx/linter-python-flask/\.github/workflows/publish_to_ghcr\.yml@refs/tags/v.*$
+  COSIGN_OIDC_ISSUER: https://token.actions.githubusercontent.com
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -21,8 +27,6 @@ jobs:
     outputs:
       sha: ${{ steps.source.outputs.sha }}
       tag: ${{ steps.source.outputs.tag }}
-      run_id: ${{ steps.source.outputs.run_id }}
-      artifact_id: ${{ steps.source.outputs.artifact_id }}
     steps:
       - name: Validate SemVer, main commit and successful source workflows
         id: source
@@ -46,10 +50,8 @@ jobs:
             if (sha !== context.sha || sha !== main.object.sha) {
               throw new Error('The tag must point to the current main commit');
             }
-            let security;
             for (const [file, requiredJobs] of Object.entries({
               'quality.yml': ['python-quality', 'hadolint'],
-              // TASK-011 runs integration in this same trusted workflow run.
               'image-security.yml': ['image-security', 'integration / docker-compose-test']
             })) {
               const {data: workflow} = await github.rest.actions.getWorkflow({...repo, workflow_id: file});
@@ -70,58 +72,30 @@ jobs:
                 throw new Error(`Missing successful required job in ${file}`);
               }
               core.info(`${workflow.name}: ${run.html_url}`);
-              if (file === 'image-security.yml') security = run;
-            }
-            const name = `validated-image-${sha}`;
-            const {data: artifacts} = await github.rest.actions.listWorkflowRunArtifacts({
-              ...repo, run_id: security.id, per_page: 100
-            });
-            const matches = artifacts.artifacts.filter(a => a.name === name && !a.expired);
-            const origin = matches[0]?.workflow_run;
-            if (matches.length !== 1 || origin?.id !== security.id ||
-                origin.head_sha !== sha || origin.head_branch !== 'main' ||
-                origin.head_repository_id !== security.head_repository.id) {
-              throw new Error('Missing or untrusted validated image artifact');
             }
             core.setOutput('sha', sha);
             core.setOutput('tag', tag);
-            core.setOutput('run_id', String(security.id));
-            core.setOutput('artifact_id', String(matches[0].id));
 
   publish:
     needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read
       packages: write
+      id-token: write # keyless Cosign signature (Sigstore OIDC)
     defaults:
       run:
         shell: bash
     env:
-      IMAGE: ghcr.io/clement-machtelinckx/linter-python-flask
       COMMIT_SHA: ${{ needs.validate.outputs.sha }}
       RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+      SYFT_VERSION: "1.42.0"
+    outputs:
+      digest: ${{ steps.bake.outputs.digest }}
     steps:
-      - name: Download the exact validated artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          github-token: ${{ github.token }}
-          run-id: ${{ needs.validate.outputs.run_id }}
-          artifact-ids: ${{ needs.validate.outputs.artifact_id }}
-          path: ${{ runner.temp }}/validated-image
-          merge-multiple: true
-
-      - name: Verify and load the validated image without rebuilding
-        working-directory: ${{ runner.temp }}/validated-image
-        run: |
-          test "$(cat commit.txt)" = "$COMMIT_SHA"
-          test "$(cat image-tag.txt)" = "flask-security:$COMMIT_SHA"
-          grep -Eq '^[0-9a-f]{64}  image\.tar$' image.tar.sha256
-          sha256sum --check image.tar.sha256
-          grep -Eq '^sha256:[0-9a-f]{64}$' image-id.txt
-          docker image load --input image.tar
-          test "$(docker image inspect --format '{{.Id}}' "flask-security:$COMMIT_SHA")" = "$(cat image-id.txt)"
+          ref: ${{ needs.validate.outputs.sha }}
 
       - name: Refuse to overwrite an existing release tag
         env:
@@ -152,20 +126,126 @@ jobs:
               raise SystemExit('Release tag already exists; refusing to overwrite it')
           PY
 
-      - name: Login to GHCR with GITHUB_TOKEN
-        env:
-          GHCR_TOKEN: ${{ github.token }}
-        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
 
-      - name: Publish SemVer and commit tags and display the real digest
+      - name: Set up an isolated BuildKit builder
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Login to GHCR with GITHUB_TOKEN
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Install verified Syft
         run: |
-          docker tag "flask-security:$COMMIT_SHA" "$IMAGE:$RELEASE_TAG"
-          docker tag "flask-security:$COMMIT_SHA" "$IMAGE:sha-${COMMIT_SHA:0:12}"
-          docker push "$IMAGE:sha-${COMMIT_SHA:0:12}"
-          docker push "$IMAGE:$RELEASE_TAG" | tee "$RUNNER_TEMP/release-push.log"
-          digest=$(sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' "$RUNNER_TEMP/release-push.log")
+          mkdir -p "$RUNNER_TEMP/tools"
+          cd "$RUNNER_TEMP/tools"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "syft_${SYFT_VERSION}_checksums.txt"
+          tar -xzf "syft_${SYFT_VERSION}_linux_amd64.tar.gz" syft
+          echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
+
+      # Declarative multi-arch build: amd64 + arm64, SemVer + commit tags, registry cache
+      # (mode=max), build secret mounted in tmpfs. Bake pushes one OCI index per tag.
+      - name: Build and push the multi-arch image with Bake
+        id: bake
+        env:
+          REGISTRY: ghcr.io/clement-machtelinckx
+          TAGS: ${{ needs.validate.outputs.tag }},sha-${{ needs.validate.outputs.sha }}
+        run: |
+          umask 077
+          mkdir -p secrets
+          printf 'tok_%s\n' "$(openssl rand -hex 24)" > secrets/pip_token.txt
+          docker buildx bake -f docker-bake.hcl --metadata-file "$RUNNER_TEMP/bake-metadata.json"
+          rm -rf secrets
+          digest=$(jq -r '.api["containerimage.digest"]' "$RUNNER_TEMP/bake-metadata.json")
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
           printf 'Published image: %s@%s\n' "$IMAGE" "$digest" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Prove the unified OCI index (linux/amd64 + linux/arm64)
+        run: |
+          docker buildx imagetools inspect "$IMAGE@${{ steps.bake.outputs.digest }}" --raw > "$RUNNER_TEMP/index.json"
+          jq -e '.mediaType == "application/vnd.oci.image.index.v1+json"' "$RUNNER_TEMP/index.json"
+          for platform in amd64 arm64; do
+            jq -e --arg a "$platform" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $a)' "$RUNNER_TEMP/index.json" > /dev/null
+          done
+          docker buildx imagetools inspect "$IMAGE@${{ steps.bake.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The signature targets the immutable digest, never the mutable tag.
+      - name: Sign the published digest (keyless, GitHub OIDC)
+        run: cosign sign --yes "$IMAGE@${{ steps.bake.outputs.digest }}"
+
+      - name: Generate the SBOM of the published digest and attach it as a signed attestation
+        run: |
+          syft scan "registry:$IMAGE@${{ steps.bake.outputs.digest }}" \
+            -o "cyclonedx-json=$RUNNER_TEMP/sbom.cdx.json" \
+            -o "spdx-json=$RUNNER_TEMP/sbom.spdx.json"
+          cosign attest --yes --type cyclonedx --predicate "$RUNNER_TEMP/sbom.cdx.json" \
+            "$IMAGE@${{ steps.bake.outputs.digest }}"
+
+      - name: Upload release SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-sbom-${{ needs.validate.outputs.tag }}
+          path: |
+            ${{ runner.temp }}/sbom.cdx.json
+            ${{ runner.temp }}/sbom.spdx.json
+          retention-days: 90
+
+      - name: Logout from GHCR
+        if: always()
+        run: docker logout ghcr.io
+
+  # Final admission gate: an independent job verifies, from the registry only, that the
+  # published digest is signed by this workflow and carries an authentic SBOM attestation.
+  admission:
+    needs: [validate, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      DIGEST: ${{ needs.publish.outputs.digest }}
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Login to GHCR (read)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Verify the image signature
+        run: |
+          cosign verify "$IMAGE@$DIGEST" \
+            --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
+            --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+            --output text
+
+      - name: Verify the SBOM attestation and check it describes this digest
+        run: |
+          cosign verify-attestation "$IMAGE@$DIGEST" --type cyclonedx \
+            --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
+            --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+            --output json > "$RUNNER_TEMP/attestation.json"
+          jq -r '.payload' "$RUNNER_TEMP/attestation.json" | base64 -d > "$RUNNER_TEMP/statement.json"
+          jq -e --arg d "${DIGEST#sha256:}" '.subject[] | select(.digest.sha256 == $d)' "$RUNNER_TEMP/statement.json" > /dev/null
+          echo "Attested SBOM components: $(jq '[.predicate.components[] | select(.type != "file")] | length' "$RUNNER_TEMP/statement.json")" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Logout from GHCR
         if: always()
