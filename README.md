@@ -533,12 +533,14 @@ celle ci-dessous.
 | Élément | Valeur |
 |---|---|
 | Image | `ghcr.io/clement-machtelinckx/linter-python-flask` |
-| Tag SemVer | `v1.1.0` — *à publier après fusion de la PR TP 2* |
+| Tag SemVer | `v1.1.1` — *à publier après fusion de la PR #38* (la `v1.1.0` a été poussée **non signée** : Cosign 3 a rejeté l'env `COSIGN_OIDC_ISSUER`, voir #38 ; elle est remplacée, pas réécrite) |
 | Digest de l'index | *à compléter après la release (sortie « Published image » du job `publish`)* |
-| Identité du signataire | `https://github.com/clement-machtelinckx/linter-python-flask/.github/workflows/publish_to_ghcr.yml@refs/tags/v1.1.0` |
+| Identité du signataire | `https://github.com/clement-machtelinckx/linter-python-flask/.github/workflows/publish_to_ghcr.yml@refs/tags/v1.1.1` |
 | Émetteur OIDC | `https://token.actions.githubusercontent.com` |
 
-### 10.2 Vérification depuis un terminal (Cosign 2.x keyless, testé avec 2.6 ; `jq`)
+### 10.2 Vérification depuis un terminal (Cosign 2.x ou 3.x, `jq`)
+
+Les signatures sont publiées au format historique (tags `.sig`/`.att`), vérifiable sans option supplémentaire par Cosign 2.x comme par Cosign 3.x (testé le 2026-10-29 avec 2.4.1 et 3.0.6 ; 3.x retombe sur ce format quand aucun bundle Sigstore n'est attaché).
 
 ```bash
 IMAGE=ghcr.io/clement-machtelinckx/linter-python-flask

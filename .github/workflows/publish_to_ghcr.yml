@@ -16,8 +16,9 @@ env:
   # Full reference; bake reads its own bare IMAGE variable from the environment, hence the name.
   IMAGE_REF: ghcr.io/clement-machtelinckx/linter-python-flask
   # Identity of the keyless signature: this workflow, on a SemVer release tag, via GitHub OIDC.
-  COSIGN_IDENTITY_REGEXP: ^https://github\.com/clement-machtelinckx/linter-python-flask/\.github/workflows/publish_to_ghcr\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$
-  COSIGN_OIDC_ISSUER: https://token.actions.githubusercontent.com
+  # No COSIGN_ prefix: Cosign binds every COSIGN_<FLAG> variable to a flag (#38).
+  RELEASE_SIGNER_IDENTITY_REGEXP: ^https://github\.com/clement-machtelinckx/linter-python-flask/\.github/workflows/publish_to_ghcr\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$
+  RELEASE_SIGNER_OIDC_ISSUER: https://token.actions.githubusercontent.com
   SYFT_VERSION: "1.42.0"
   GRYPE_VERSION: "0.108.0"
 
@@ -209,19 +210,22 @@ jobs:
 
       # Signatures and attestations target immutable digests, never the mutable tag: the index
       # (what users pull) and each platform manifest (what each SBOM really describes).
+      # Legacy signature format on purpose: Cosign 3 defaults to Sigstore bundles via the OCI
+      # referrers API, which Cosign 2.x verifiers cannot read; the tag-based format is verifiable
+      # by both (drop the two flags to migrate once every verifier runs Cosign 3).
       - name: Sign the index and the platform manifests (keyless, GitHub OIDC)
         env:
           DIGEST: ${{ steps.bake.outputs.digest }}
         run: |
-          cosign sign --yes "$IMAGE_REF@$DIGEST"
+          cosign sign --yes --use-signing-config=false --new-bundle-format=false "$IMAGE_REF@$DIGEST"
           for platform in amd64 arm64; do
-            cosign sign --yes "$IMAGE_REF@$(cat "$RUNNER_TEMP/digest-$platform")"
+            cosign sign --yes --use-signing-config=false --new-bundle-format=false "$IMAGE_REF@$(cat "$RUNNER_TEMP/digest-$platform")"
           done
 
       - name: Attach each platform SBOM to its manifest as a signed attestation
         run: |
           for platform in amd64 arm64; do
-            cosign attest --yes --type cyclonedx --predicate "$RUNNER_TEMP/sbom/sbom-$platform.cdx.json" \
+            cosign attest --yes --use-signing-config=false --new-bundle-format=false --type cyclonedx --predicate "$RUNNER_TEMP/sbom/sbom-$platform.cdx.json" \
               "$IMAGE_REF@$(cat "$RUNNER_TEMP/digest-$platform")"
           done
 
@@ -275,9 +279,9 @@ jobs:
       - name: Verify the signatures (index and platform manifests)
         run: |
           for ref in "$DIGEST" "$(cat "$RUNNER_TEMP/digest-amd64")" "$(cat "$RUNNER_TEMP/digest-arm64")"; do
-            cosign verify "$IMAGE_REF@$ref" \
-              --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
-              --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+            cosign verify --new-bundle-format=false "$IMAGE_REF@$ref" \
+              --certificate-identity-regexp "$RELEASE_SIGNER_IDENTITY_REGEXP" \
+              --certificate-oidc-issuer "$RELEASE_SIGNER_OIDC_ISSUER" \
               --output text
           done
 
@@ -285,9 +289,9 @@ jobs:
         run: |
           for platform in amd64 arm64; do
             digest=$(cat "$RUNNER_TEMP/digest-$platform")
-            cosign verify-attestation "$IMAGE_REF@$digest" --type cyclonedx \
-              --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
-              --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+            cosign verify-attestation --new-bundle-format=false "$IMAGE_REF@$digest" --type cyclonedx \
+              --certificate-identity-regexp "$RELEASE_SIGNER_IDENTITY_REGEXP" \
+              --certificate-oidc-issuer "$RELEASE_SIGNER_OIDC_ISSUER" \
               --output json > "$RUNNER_TEMP/attestation-$platform.json"
             jq -r '.payload' "$RUNNER_TEMP/attestation-$platform.json" | base64 -d > "$RUNNER_TEMP/statement-$platform.json"
             jq -e --arg d "${digest#sha256:}" \
