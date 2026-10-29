@@ -24,6 +24,7 @@ jobs:
       IMAGE_TAG: flask-security:${{ github.sha }}
       DIVE_VERSION: "0.13.1"
       TRIVY_VERSION: "0.75.0"
+      SYFT_VERSION: "1.42.0"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -56,14 +57,46 @@ jobs:
           curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"
           sha256sum --check --ignore-missing "trivy_${TRIVY_VERSION}_checksums.txt"
           tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "syft_${SYFT_VERSION}_checksums.txt"
+          tar -xzf "syft_${SYFT_VERSION}_linux_amd64.tar.gz" syft
           echo "$RUNNER_TEMP/image-tools" >> "$GITHUB_PATH"
           ./dive --version > "$RUNNER_TEMP/image-security/tools.txt"
           ./trivy --version >> "$RUNNER_TEMP/image-security/tools.txt"
+          ./syft --version >> "$RUNNER_TEMP/image-security/tools.txt"
 
       - name: Dive efficiency gate (at least 80 percent)
         run: |
           CI=true dive "$IMAGE_TAG" --ci-config .dive-ci \
             2>&1 | tee "$RUNNER_TEMP/image-security/dive.txt"
+
+      # Static inventory of the built image (no container is run), both standards at once.
+      - name: Generate SBOM (CycloneDX and SPDX JSON)
+        id: sbom
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.tools.outcome == 'success' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/sbom"
+          syft scan "docker:$IMAGE_TAG" \
+            --source-name "$IMAGE_TAG" \
+            --source-version "$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")" \
+            -o "cyclonedx-json=$RUNNER_TEMP/sbom/sbom.cdx.json" \
+            -o "spdx-json=$RUNNER_TEMP/sbom/sbom.spdx.json"
+          {
+            echo '## SBOM'
+            echo "- CycloneDX packages (files excluded): $(jq '[.components[] | select(.type != "file")] | length' "$RUNNER_TEMP/sbom/sbom.cdx.json")"
+            echo "- SPDX packages: $(jq '.packages | length' "$RUNNER_TEMP/sbom/sbom.spdx.json")"
+            echo "- Licenses: $(jq -r '[.packages[].licenseConcluded] | unique | join(", ")' "$RUNNER_TEMP/sbom/sbom.spdx.json")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload SBOM artifacts
+        if: ${{ steps.sbom.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: ${{ runner.temp }}/sbom/
+          retention-days: 90
+          overwrite: true
 
       - name: Trivy full report (including unfixed vulnerabilities)
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.tools.outcome == 'success' }}
