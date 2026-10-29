@@ -7,5 +7,9 @@ trustedRegistries:
 override:
   error:
     - DL3002
+    - DL3006
     - DL3007
     - DL4006
+  warning:
+    - DL3025
+    - DL3042

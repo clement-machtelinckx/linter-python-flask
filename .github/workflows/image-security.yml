@@ -70,6 +70,27 @@ jobs:
           { ./dive --version; ./trivy --version; ./syft --version; ./grype --version; } \
             > "$RUNNER_TEMP/image-security/tools.txt"
 
+      # Automated proof that the tmpfs build secret left no trace: layer history and
+      # metadata, the whole filesystem, and a Trivy secret scan with the dedicated rule.
+      # The positive control proves the rule detects the token, so a clean image is a real result.
+      - name: Build secret leak gate
+        run: |
+          leaks=$({ docker history --no-trunc "$IMAGE_TAG"; docker image inspect "$IMAGE_TAG"; } \
+            | grep -cFf "$RUNNER_TEMP/pip_token" || true)
+          test "$leaks" -eq 0
+          leaks=$(docker image save "$IMAGE_TAG" | tar -xO 2>/dev/null | grep -acFf "$RUNNER_TEMP/pip_token" || true)
+          test "$leaks" -eq 0
+          mkdir -p "$RUNNER_TEMP/secret-control"
+          cp "$RUNNER_TEMP/pip_token" "$RUNNER_TEMP/secret-control/"
+          if trivy fs --scanners secret --secret-config .trivy-secret.yaml --exit-code 1 \
+               --quiet "$RUNNER_TEMP/secret-control" > /dev/null; then
+            echo 'Positive control failed: the secret rule does not detect the token'; exit 1
+          fi
+          rm -rf "$RUNNER_TEMP/secret-control"
+          trivy image --scanners secret --secret-config .trivy-secret.yaml --exit-code 1 "$IMAGE_TAG" \
+            2>&1 | tee "$RUNNER_TEMP/image-security/trivy-secret.txt"
+          echo '- Build secret: absent from history, metadata, filesystem and Trivy secret scan' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Dive efficiency gate (at least 80 percent)
         run: |
           CI=true dive "$IMAGE_TAG" --ci-config .dive-ci \
