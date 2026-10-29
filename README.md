@@ -533,8 +533,11 @@ celle ci-dessous.
 | Élément | Valeur |
 |---|---|
 | Image | `ghcr.io/clement-machtelinckx/linter-python-flask` |
-| Tag SemVer | `v1.1.1` — *à publier après fusion de la PR #38* (la `v1.1.0` a été poussée **non signée** : Cosign 3 a rejeté l'env `COSIGN_OIDC_ISSUER`, voir #38 ; elle est remplacée, pas réécrite) |
-| Digest de l'index | *à compléter après la release (sortie « Published image » du job `publish`)* |
+| Tag SemVer | `v1.1.1` (run [40871325590](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/40871325590), 2026-10-29 ; tag de commit `sha-2381039ddea4`). La `v1.1.0` a été poussée **non signée** — Cosign 3 a rejeté l'env `COSIGN_OIDC_ISSUER`, voir #38 — et reste en l'état : remplacée, pas réécrite |
+| Digest de l'index | `sha256:d42185600d94df2717e26af1cd98fb360d3790142eeff61421cef601aeffe136` |
+| Manifeste `linux/amd64` | `sha256:4b6f11e2aa9d218bb1068e70dab1628cabfc4bdeb8321058f90dea0b5559824b` — signé, attestation CycloneDX (47 composants), Rekor 3566878669 |
+| Manifeste `linux/arm64` | `sha256:a18b70c9a61d4890751dfe967e705007c1062c15ab5ec4ed1c36fa6de9febc4e` — signé, attestation CycloneDX (47 composants), Rekor 3566880150 |
+| Signature de l'index | Rekor 3566877796 |
 | Identité du signataire | `https://github.com/clement-machtelinckx/linter-python-flask/.github/workflows/publish_to_ghcr.yml@refs/tags/v1.1.1` |
 | Émetteur OIDC | `https://token.actions.githubusercontent.com` |
 
@@ -544,7 +547,7 @@ Les signatures sont publiées au format historique (tags `.sig`/`.att`), vérifi
 
 ```bash
 IMAGE=ghcr.io/clement-machtelinckx/linter-python-flask
-DIGEST=sha256:<digest publié>   # digest de l'index, jamais le tag mutable
+DIGEST=sha256:d42185600d94df2717e26af1cd98fb360d3790142eeff61421cef601aeffe136   # index v1.1.1, jamais le tag mutable
 IDENTITY='^https://github\.com/clement-machtelinckx/linter-python-flask/\.github/workflows/publish_to_ghcr\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 ISSUER=https://token.actions.githubusercontent.com
 
@@ -570,6 +573,8 @@ cosign verify-attestation "$IMAGE@$AMD64" --type cyclonedx \
   | jq -r '.payload' | base64 -d | jq '.predicate' > sbom-certifie-amd64.cdx.json
 jq '[.components[] | select(.type != "file")] | length' sbom-certifie-amd64.cdx.json
 ```
+
+Ces commandes ont été rejouées le 2026-10-29 depuis un poste sans session GHCR (pull anonyme) avec Cosign 2.4.1 puis 3.0.6 : trois signatures valides, deux attestations dont le sujet est le digest du manifeste, 47 composants chacune ; une identité étrangère est rejetée et `v1.1.0` ne vérifie pas.
 
 La mécanique sign → attest → verify → contrôle du sujet a été rejouée localement le 2026-10-29
 contre le registre local avec une paire de clés jetable (le keyless exige le jeton OIDC
