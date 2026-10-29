@@ -25,6 +25,7 @@ jobs:
       DIVE_VERSION: "0.13.1"
       TRIVY_VERSION: "0.75.0"
       SYFT_VERSION: "1.42.0"
+      GRYPE_VERSION: "0.108.0"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -61,10 +62,13 @@ jobs:
           curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt"
           sha256sum --check --ignore-missing "syft_${SYFT_VERSION}_checksums.txt"
           tar -xzf "syft_${SYFT_VERSION}_linux_amd64.tar.gz" syft
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "grype_${GRYPE_VERSION}_checksums.txt"
+          tar -xzf "grype_${GRYPE_VERSION}_linux_amd64.tar.gz" grype
           echo "$RUNNER_TEMP/image-tools" >> "$GITHUB_PATH"
-          ./dive --version > "$RUNNER_TEMP/image-security/tools.txt"
-          ./trivy --version >> "$RUNNER_TEMP/image-security/tools.txt"
-          ./syft --version >> "$RUNNER_TEMP/image-security/tools.txt"
+          { ./dive --version; ./trivy --version; ./syft --version; ./grype --version; } \
+            > "$RUNNER_TEMP/image-security/tools.txt"
 
       - name: Dive efficiency gate (at least 80 percent)
         run: |
@@ -97,6 +101,28 @@ jobs:
           path: ${{ runner.temp }}/sbom/
           retention-days: 90
           overwrite: true
+
+      # The SBOM, not the image, is correlated against the vulnerability database.
+      # .grype.yaml holds the policy (fixable HIGH+ blocks, OpenVEX exemptions in security.vex.json).
+      - name: Grype full report on the SBOM (VEX applied, unfixed included)
+        if: ${{ steps.sbom.outcome == 'success' }}
+        env:
+          GRYPE_ONLY_FIXED: "false"
+          GRYPE_FAIL_ON_SEVERITY: ""
+        run: |
+          grype "sbom:$RUNNER_TEMP/sbom/sbom.cdx.json" --output json \
+            --file "$RUNNER_TEMP/image-security/grype-full.json"
+          {
+            echo '## Grype on SBOM'
+            echo "- Matches: $(jq '.matches | length' "$RUNNER_TEMP/image-security/grype-full.json")"
+            echo "- Exempted by OpenVEX (not_affected): $(jq '[.ignoredMatches[] | select(.appliedIgnoreRules[].namespace == "vex")] | length' "$RUNNER_TEMP/image-security/grype-full.json")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Grype gate on the SBOM (fixable HIGH and CRITICAL, VEX applied)
+        if: ${{ steps.sbom.outcome == 'success' }}
+        run: |
+          grype "sbom:$RUNNER_TEMP/sbom/sbom.cdx.json" --output table \
+            2>&1 | tee "$RUNNER_TEMP/image-security/grype-gate.txt"
 
       - name: Trivy full report (including unfixed vulnerabilities)
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.tools.outcome == 'success' }}
