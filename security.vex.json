@@ -19,7 +19,7 @@
       ],
       "status": "not_affected",
       "justification": "vulnerable_code_not_in_execute_path",
-      "impact_statement": "CVE-2026-19445 lies in the CPython ssl module TLS SNI callback. The API serves plain HTTP only (app.py: app.run(host, port) without ssl_context) and never imports ssl, so the vulnerable code path is never executed. Debian marks it wont-fix for 3.13.5-2+deb13u5; the exemption is re-evaluated at every base-image digest bump."
+      "impact_statement": "CVE-2026-19445 lies in the CPython ssl module TLS SNI callback. The API serves plain HTTP only (app.py: app.run(host, port) without ssl_context), so no SSLContext and therefore no SNI callback is ever created: Werkzeug may import ssl, but the vulnerable callback path is never executed. Debian marks it wont-fix for 3.13.5-2+deb13u5; the exemption is re-evaluated at every base-image digest bump."
     }
   ]
 }

@@ -226,7 +226,8 @@ job before building, and all external actions, including legacy deployment workf
 use full commit SHAs. Deployment workflows remain manual-only.
 
 [PR #28](https://github.com/clement-machtelinckx/linter-python-flask/pull/28) replaced
-the inherited publisher. A `vX.Y.Z` or valid prerelease tag must point to current main.
+the inherited publisher (the "publish without rebuilding" design below is superseded by
+the TP 2 release flow; the validation rules are unchanged). A `vX.Y.Z` or valid prerelease tag must point to current main.
 The validation job requires successful quality and security/integration jobs for
 that exact SHA and retrieves the associated non-expired validated image artifact.
 The publication job uses the native token, has `packages: write` only at job scope,
@@ -482,7 +483,7 @@ jq -r '.packages[] | select(.name | test("^(flask|werkzeug|psycopg2)")) | "\(.na
 # flask BSD-3-Clause / werkzeug BSD-3-Clause / psycopg2-binary LicenseRef-LGPL-with-exceptions
 ```
 
-CycloneDX reporte les licences déclarées par Debian au niveau fichier (≈ 90 identifiants
+CycloneDX reporte les licences déclarées par Debian au niveau fichier (86 identifiants
 uniques : BSD-3-Clause, MIT, GPL-2.0-or-later, LGPL-2.1…) ; SPDX consolide par paquet.
 
 ### 9.2 Corrélation sur SBOM et qualification OpenVEX
@@ -508,9 +509,10 @@ complet, elles ne sont pas exemptées. Une seule exemption existe, auditable dan
   `3.13.5-2+deb13u5`, PURL `arch=amd64` et `arch=arm64` (une déclaration couvre les deux variantes).
 - Statut `not_affected`, justification normalisée `vulnerable_code_not_in_execute_path`.
 - Justification technique : l'API sert du HTTP en clair — [app.py](app.py) appelle
-  `app.run(host, port)` sans `ssl_context` et n'importe jamais `ssl` (vérifié par `grep` le
-  2026-10-29) ; le chemin vulnérable n'est donc jamais exécuté. Justification métier : le TLS est
-  terminé en amont (reverse proxy / équilibreur), hors du conteneur ; Debian classe la CVE
+  `app.run(host, port)` sans `ssl_context`, donc aucun `SSLContext` et aucun rappel SNI n'est
+  jamais créé (Werkzeug peut importer `ssl`, mais le chemin du rappel vulnérable n'est pas
+  exécuté — vérifié le 2026-10-29). Justification métier : le conteneur n'expose pas de TLS ;
+  s'il en faut, il est terminé en amont (reverse proxy / équilibreur). Debian classe la CVE
   `wont-fix` pour cette version, donc aucun correctif n'est attendu par simple rebuild.
 - Révision : la déclaration est réévaluée à chaque changement de digest de l'image de base.
 
@@ -521,9 +523,11 @@ complet, elles ne sont pas exemptées. Une seule exemption existe, auditable dan
 Le workflow [publish_to_ghcr.yml](.github/workflows/publish_to_ghcr.yml) publie, à chaque tag
 `vX.Y.Z` pointant sur `main`, un index OCI multi-architecture, le signe **sans clé** (Sigstore
 keyless : certificat Fulcio éphémère lié à l'identité OIDC du workflow, journalisé dans Rekor)
-en ciblant exclusivement son digest, attache le SBOM CycloneDX en attestation in-toto signée,
-puis un job `admission` indépendant vérifie signature et attestation depuis le registre
-(aucun `continue-on-error`). Il n'y a donc pas de `cosign.pub` : l'identité à vérifier est
+en ciblant exclusivement les digests (index et manifestes amd64/arm64), génère un SBOM
+CycloneDX **par plateforme** depuis le registre, le passe au gate Grype (`.grype.yaml`, VEX
+appliqué) avant toute signature, l'attache en attestation in-toto signée au manifeste qu'il
+décrit, puis un job `admission` indépendant vérifie les trois signatures et les deux
+attestations depuis le registre (aucun `continue-on-error`). Il n'y a donc pas de `cosign.pub` : l'identité à vérifier est
 celle ci-dessous.
 
 | Élément | Valeur |
@@ -534,31 +538,35 @@ celle ci-dessous.
 | Identité du signataire | `https://github.com/clement-machtelinckx/linter-python-flask/.github/workflows/publish_to_ghcr.yml@refs/tags/v1.1.0` |
 | Émetteur OIDC | `https://token.actions.githubusercontent.com` |
 
-### 10.2 Vérification depuis un terminal (Cosign ≥ 2.4, `jq`)
+### 10.2 Vérification depuis un terminal (Cosign 2.x keyless, testé avec 2.6 ; `jq`)
 
 ```bash
 IMAGE=ghcr.io/clement-machtelinckx/linter-python-flask
-DIGEST=sha256:<digest publié>   # jamais le tag mutable
-IDENTITY='^https://github\.com/clement-machtelinckx/linter-python-flask/\.github/workflows/publish_to_ghcr\.yml@refs/tags/v.*$'
+DIGEST=sha256:<digest publié>   # digest de l'index, jamais le tag mutable
+IDENTITY='^https://github\.com/clement-machtelinckx/linter-python-flask/\.github/workflows/publish_to_ghcr\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 ISSUER=https://token.actions.githubusercontent.com
 
-# 1. Index multi-arch : amd64 + arm64 sous un seul digest
+# 1. Index multi-arch : amd64 + arm64 sous un seul digest, et digest de chaque manifeste
 docker buildx imagetools inspect "$IMAGE@$DIGEST"
+AMD64=$(docker buildx imagetools inspect "$IMAGE@$DIGEST" --raw \
+  | jq -r '.manifests[] | select(.platform.architecture == "amd64") | .digest')
 
-# 2. Signature de l'image (keyless) : identité + émetteur, transparence Rekor
+# 2. Signatures keyless (index puis manifeste) : identité + émetteur, transparence Rekor
 cosign verify "$IMAGE@$DIGEST" \
   --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER"
+cosign verify "$IMAGE@$AMD64" \
+  --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER"
 
-# 3. Attestation SBOM : signature valide ET sujet = digest publié
-cosign verify-attestation "$IMAGE@$DIGEST" --type cyclonedx \
+# 3. Attestation SBOM du manifeste amd64 : signature valide ET sujet = digest du manifeste
+cosign verify-attestation "$IMAGE@$AMD64" --type cyclonedx \
   --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER" \
-  | jq -r '.payload' | base64 -d | jq '.subject'
+  | jq -r '.payload' | base64 -d | jq '{predicateType, subject}'
 
-# 4. Extraction du SBOM certifié depuis le registre
-cosign verify-attestation "$IMAGE@$DIGEST" --type cyclonedx \
+# 4. Extraction du SBOM certifié depuis le registre (même chose avec arm64)
+cosign verify-attestation "$IMAGE@$AMD64" --type cyclonedx \
   --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER" \
-  | jq -r '.payload' | base64 -d | jq '.predicate' > sbom-certifie.cdx.json
-jq '[.components[] | select(.type != "file")] | length' sbom-certifie.cdx.json
+  | jq -r '.payload' | base64 -d | jq '.predicate' > sbom-certifie-amd64.cdx.json
+jq '[.components[] | select(.type != "file")] | length' sbom-certifie-amd64.cdx.json
 ```
 
 La mécanique sign → attest → verify → contrôle du sujet a été rejouée localement le 2026-10-29
