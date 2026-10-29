@@ -78,18 +78,31 @@ jobs:
           leaks=$({ docker history --no-trunc "$IMAGE_TAG"; docker image inspect "$IMAGE_TAG"; } \
             | grep -cFf "$RUNNER_TEMP/pip_token" || true)
           test "$leaks" -eq 0
-          leaks=$(docker image save "$IMAGE_TAG" | tar -xO 2>/dev/null | grep -acFf "$RUNNER_TEMP/pip_token" || true)
+          # docker export flattens the final filesystem (no layer tars to unpack, no tar errors to hide).
+          container=$(docker create "$IMAGE_TAG")
+          leaks=$(docker export "$container" | grep -acFf "$RUNNER_TEMP/pip_token" || true)
+          docker rm "$container" > /dev/null
           test "$leaks" -eq 0
           mkdir -p "$RUNNER_TEMP/secret-control"
           cp "$RUNNER_TEMP/pip_token" "$RUNNER_TEMP/secret-control/"
-          if trivy fs --scanners secret --secret-config .trivy-secret.yaml --exit-code 1 \
-               --quiet "$RUNNER_TEMP/secret-control" > /dev/null; then
+          # Positive control: the scan must fail AND name our rule, so a clean image is a real result.
+          control=0
+          trivy fs --scanners secret --secret-config .trivy-secret.yaml --exit-code 1 --quiet \
+            "$RUNNER_TEMP/secret-control" > "$RUNNER_TEMP/secret-control.txt" 2>&1 || control=$?
+          if [ "$control" -eq 0 ] || ! grep -q simulated-pip-token "$RUNNER_TEMP/secret-control.txt"; then
             echo 'Positive control failed: the secret rule does not detect the token'; exit 1
           fi
-          rm -rf "$RUNNER_TEMP/secret-control"
+          rm -rf "$RUNNER_TEMP/secret-control" "$RUNNER_TEMP/secret-control.txt"
           trivy image --scanners secret --secret-config .trivy-secret.yaml --exit-code 1 "$IMAGE_TAG" \
             2>&1 | tee "$RUNNER_TEMP/image-security/trivy-secret.txt"
           echo '- Build secret: absent from history, metadata, filesystem and Trivy secret scan' >> "$GITHUB_STEP_SUMMARY"
+
+      # Misconfiguration scan of the Dockerfile (Trivy checks complementary to Hadolint); the legacy
+      # aws/ Terraform is out of scope of the image gate and is not scanned here.
+      - name: Trivy config scan (Dockerfile)
+        run: |
+          trivy config --misconfig-scanners dockerfile --exit-code 1 --severity HIGH,CRITICAL . \
+            2>&1 | tee "$RUNNER_TEMP/image-security/trivy-config.txt"
 
       - name: Dive efficiency gate (at least 80 percent)
         run: |
@@ -127,6 +140,7 @@ jobs:
       # .grype.yaml holds the policy (fixable HIGH+ blocks, OpenVEX exemptions in security.vex.json).
       - name: Grype full report on the SBOM (VEX applied, unfixed included)
         if: ${{ steps.sbom.outcome == 'success' }}
+        # The report must list everything (unfixed too) without failing: override the gate policy here only.
         env:
           GRYPE_ONLY_FIXED: "false"
           GRYPE_FAIL_ON_SEVERITY: ""
@@ -159,8 +173,8 @@ jobs:
             --ignore-unfixed --exit-code 1 "$IMAGE_TAG" \
             2>&1 | tee "$RUNNER_TEMP/image-security/trivy-gate.txt"
 
-      # TASK-012 must load this image after all checks for this SHA have passed.
-      - name: Export the validated image for TASK-012
+      # The integration job (multi-container.yml) loads this exact image once every check above passed.
+      - name: Export the validated image for the integration job
         run: |
           mkdir -p "$RUNNER_TEMP/validated-image"
           docker image save --output "$RUNNER_TEMP/validated-image/image.tar" "$IMAGE_TAG"

@@ -13,10 +13,13 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/clement-machtelinckx/linter-python-flask
-  # Identity of the keyless signature: this workflow, on a release tag, via GitHub OIDC.
-  COSIGN_IDENTITY_REGEXP: ^https://github\.com/clement-machtelinckx/linter-python-flask/\.github/workflows/publish_to_ghcr\.yml@refs/tags/v.*$
+  # Full reference; bake reads its own bare IMAGE variable from the environment, hence the name.
+  IMAGE_REF: ghcr.io/clement-machtelinckx/linter-python-flask
+  # Identity of the keyless signature: this workflow, on a SemVer release tag, via GitHub OIDC.
+  COSIGN_IDENTITY_REGEXP: ^https://github\.com/clement-machtelinckx/linter-python-flask/\.github/workflows/publish_to_ghcr\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$
   COSIGN_OIDC_ISSUER: https://token.actions.githubusercontent.com
+  SYFT_VERSION: "1.42.0"
+  GRYPE_VERSION: "0.108.0"
 
 jobs:
   validate:
@@ -89,7 +92,6 @@ jobs:
     env:
       COMMIT_SHA: ${{ needs.validate.outputs.sha }}
       RELEASE_TAG: ${{ needs.validate.outputs.tag }}
-      SYFT_VERSION: "1.42.0"
     outputs:
       digest: ${{ steps.bake.outputs.digest }}
     steps:
@@ -103,7 +105,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import base64, json, os, urllib.error, urllib.parse, urllib.request
-          image = os.environ['IMAGE'].removeprefix('ghcr.io/')
+          image = os.environ['IMAGE_REF'].removeprefix('ghcr.io/')
           credentials = f"{os.environ['GITHUB_ACTOR']}:{os.environ['GHCR_TOKEN']}".encode()
           query = urllib.parse.urlencode({'service': 'ghcr.io', 'scope': f'repository:{image}:pull'})
           request = urllib.request.Request('https://ghcr.io/token?' + query,
@@ -144,7 +146,7 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
-      - name: Install verified Syft
+      - name: Install verified Syft and Grype
         run: |
           mkdir -p "$RUNNER_TEMP/tools"
           cd "$RUNNER_TEMP/tools"
@@ -152,54 +154,85 @@ jobs:
           curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt"
           sha256sum --check --ignore-missing "syft_${SYFT_VERSION}_checksums.txt"
           tar -xzf "syft_${SYFT_VERSION}_linux_amd64.tar.gz" syft
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "grype_${GRYPE_VERSION}_checksums.txt"
+          tar -xzf "grype_${GRYPE_VERSION}_linux_amd64.tar.gz" grype
           echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
 
       # Declarative multi-arch build: amd64 + arm64, SemVer + commit tags, registry cache
       # (mode=max), build secret mounted in tmpfs. Bake pushes one OCI index per tag.
+      # The Dockerfile requires and format-checks the secret, so the release build gets a
+      # throw-away random token (no private index exists); it lives in RUNNER_TEMP only.
       - name: Build and push the multi-arch image with Bake
         id: bake
         env:
           REGISTRY: ghcr.io/clement-machtelinckx
-          TAGS: ${{ needs.validate.outputs.tag }},sha-${{ needs.validate.outputs.sha }}
+          IMAGE: linter-python-flask
         run: |
+          trap 'rm -f "$RUNNER_TEMP/pip_token"' EXIT
           umask 077
-          mkdir -p secrets
-          printf 'tok_%s\n' "$(openssl rand -hex 24)" > secrets/pip_token.txt
-          docker buildx bake -f docker-bake.hcl --metadata-file "$RUNNER_TEMP/bake-metadata.json"
-          rm -rf secrets
+          printf 'tok_%s\n' "$(openssl rand -hex 24)" > "$RUNNER_TEMP/pip_token"
+          export TAGS="$RELEASE_TAG,sha-${COMMIT_SHA:0:12}"
+          docker buildx bake -f docker-bake.hcl --metadata-file "$RUNNER_TEMP/bake-metadata.json" \
+            --set "api.secret=id=pip_token,src=$RUNNER_TEMP/pip_token"
           digest=$(jq -r '.api["containerimage.digest"]' "$RUNNER_TEMP/bake-metadata.json")
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          printf 'Published image: %s@%s\n' "$IMAGE" "$digest" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf 'Published image: %s@%s\n' "$IMAGE_REF" "$digest" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Prove the unified OCI index (linux/amd64 + linux/arm64)
+        env:
+          DIGEST: ${{ steps.bake.outputs.digest }}
         run: |
-          docker buildx imagetools inspect "$IMAGE@${{ steps.bake.outputs.digest }}" --raw > "$RUNNER_TEMP/index.json"
+          docker buildx imagetools inspect "$IMAGE_REF@$DIGEST" --raw > "$RUNNER_TEMP/index.json"
           jq -e '.mediaType == "application/vnd.oci.image.index.v1+json"' "$RUNNER_TEMP/index.json"
           for platform in amd64 arm64; do
-            jq -e --arg a "$platform" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $a)' "$RUNNER_TEMP/index.json" > /dev/null
+            jq -r --arg a "$platform" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $a) | .digest' \
+              "$RUNNER_TEMP/index.json" | grep -E '^sha256:[0-9a-f]{64}$' > "$RUNNER_TEMP/digest-$platform"
           done
-          docker buildx imagetools inspect "$IMAGE@${{ steps.bake.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          docker buildx imagetools inspect "$IMAGE_REF@$DIGEST" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # The signature targets the immutable digest, never the mutable tag.
-      - name: Sign the published digest (keyless, GitHub OIDC)
-        run: cosign sign --yes "$IMAGE@${{ steps.bake.outputs.digest }}"
-
-      - name: Generate the SBOM of the published digest and attach it as a signed attestation
+      # The pushed image is a fresh build, so each platform manifest is inventoried from the
+      # registry and gated by Grype (.grype.yaml, OpenVEX applied) before anything is signed.
+      - name: SBOM and Grype gate on every published platform manifest
         run: |
-          syft scan "registry:$IMAGE@${{ steps.bake.outputs.digest }}" \
-            -o "cyclonedx-json=$RUNNER_TEMP/sbom.cdx.json" \
-            -o "spdx-json=$RUNNER_TEMP/sbom.spdx.json"
-          cosign attest --yes --type cyclonedx --predicate "$RUNNER_TEMP/sbom.cdx.json" \
-            "$IMAGE@${{ steps.bake.outputs.digest }}"
+          mkdir -p "$RUNNER_TEMP/sbom"
+          for platform in amd64 arm64; do
+            digest=$(cat "$RUNNER_TEMP/digest-$platform")
+            syft scan "registry:$IMAGE_REF@$digest" \
+              -o "cyclonedx-json=$RUNNER_TEMP/sbom/sbom-$platform.cdx.json" \
+              -o "spdx-json=$RUNNER_TEMP/sbom/sbom-$platform.spdx.json"
+            grype "sbom:$RUNNER_TEMP/sbom/sbom-$platform.cdx.json" --output table \
+              2>&1 | tee "$RUNNER_TEMP/sbom/grype-gate-$platform.txt"
+          done
 
-      - name: Upload release SBOM
+      # Signatures and attestations target immutable digests, never the mutable tag: the index
+      # (what users pull) and each platform manifest (what each SBOM really describes).
+      - name: Sign the index and the platform manifests (keyless, GitHub OIDC)
+        env:
+          DIGEST: ${{ steps.bake.outputs.digest }}
+        run: |
+          cosign sign --yes "$IMAGE_REF@$DIGEST"
+          for platform in amd64 arm64; do
+            cosign sign --yes "$IMAGE_REF@$(cat "$RUNNER_TEMP/digest-$platform")"
+          done
+
+      - name: Attach each platform SBOM to its manifest as a signed attestation
+        run: |
+          for platform in amd64 arm64; do
+            cosign attest --yes --type cyclonedx --predicate "$RUNNER_TEMP/sbom/sbom-$platform.cdx.json" \
+              "$IMAGE_REF@$(cat "$RUNNER_TEMP/digest-$platform")"
+          done
+
+      - name: Upload release SBOMs and platform digests
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-sbom-${{ needs.validate.outputs.tag }}
           path: |
-            ${{ runner.temp }}/sbom.cdx.json
-            ${{ runner.temp }}/sbom.spdx.json
+            ${{ runner.temp }}/sbom/
+            ${{ runner.temp }}/digest-amd64
+            ${{ runner.temp }}/digest-arm64
           retention-days: 90
 
       - name: Logout from GHCR
@@ -207,7 +240,8 @@ jobs:
         run: docker logout ghcr.io
 
   # Final admission gate: an independent job verifies, from the registry only, that the
-  # published digest is signed by this workflow and carries an authentic SBOM attestation.
+  # published index and both platform manifests are signed by this workflow and that each
+  # manifest carries an authentic SBOM attestation whose subject is that very digest.
   admission:
     needs: [validate, publish]
     runs-on: ubuntu-latest
@@ -230,22 +264,38 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Verify the image signature
+      - name: Resolve the platform manifests from the registry
         run: |
-          cosign verify "$IMAGE@$DIGEST" \
-            --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
-            --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
-            --output text
+          docker buildx imagetools inspect "$IMAGE_REF@$DIGEST" --raw > "$RUNNER_TEMP/index.json"
+          for platform in amd64 arm64; do
+            jq -r --arg a "$platform" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $a) | .digest' \
+              "$RUNNER_TEMP/index.json" | grep -E '^sha256:[0-9a-f]{64}$' > "$RUNNER_TEMP/digest-$platform"
+          done
 
-      - name: Verify the SBOM attestation and check it describes this digest
+      - name: Verify the signatures (index and platform manifests)
         run: |
-          cosign verify-attestation "$IMAGE@$DIGEST" --type cyclonedx \
-            --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
-            --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
-            --output json > "$RUNNER_TEMP/attestation.json"
-          jq -r '.payload' "$RUNNER_TEMP/attestation.json" | base64 -d > "$RUNNER_TEMP/statement.json"
-          jq -e --arg d "${DIGEST#sha256:}" '.subject[] | select(.digest.sha256 == $d)' "$RUNNER_TEMP/statement.json" > /dev/null
-          echo "Attested SBOM components: $(jq '[.predicate.components[] | select(.type != "file")] | length' "$RUNNER_TEMP/statement.json")" | tee -a "$GITHUB_STEP_SUMMARY"
+          for ref in "$DIGEST" "$(cat "$RUNNER_TEMP/digest-amd64")" "$(cat "$RUNNER_TEMP/digest-arm64")"; do
+            cosign verify "$IMAGE_REF@$ref" \
+              --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
+              --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+              --output text
+          done
+
+      - name: Verify each SBOM attestation and check it describes its manifest
+        run: |
+          for platform in amd64 arm64; do
+            digest=$(cat "$RUNNER_TEMP/digest-$platform")
+            cosign verify-attestation "$IMAGE_REF@$digest" --type cyclonedx \
+              --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
+              --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+              --output json > "$RUNNER_TEMP/attestation-$platform.json"
+            jq -r '.payload' "$RUNNER_TEMP/attestation-$platform.json" | base64 -d > "$RUNNER_TEMP/statement-$platform.json"
+            jq -e --arg d "${digest#sha256:}" \
+              'select(.predicateType == "https://cyclonedx.org/bom") | .subject[] | select(.digest.sha256 == $d)' \
+              "$RUNNER_TEMP/statement-$platform.json" > /dev/null
+            echo "- $platform: attested SBOM with $(jq '[.predicate.components[] | select(.type != "file")] | length' "$RUNNER_TEMP/statement-$platform.json") packages" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          done
 
       - name: Logout from GHCR
         if: always()
