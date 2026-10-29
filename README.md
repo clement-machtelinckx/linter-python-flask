@@ -567,8 +567,11 @@ puis extraire les deux inventaires certifiés. Les signatures utilisent le forma
 (tags `.sig`/`.att`). La compatibilité Cosign 3.0.6 avait été rapportée par la PR #41 ;
 les vérifications indépendantes de l'audit T08–T13 utilisent **2.4.1**, sans désactivation
 des contrôles cryptographiques. Les commandes ci-dessous ciblent exactement `v1.1.1`.
+Le sous-shell confine les options strictes ; un échec conserve un code de retour non nul.
+Les fichiers restent consultables dans le répertoire affiché en fin de vérification.
 
 ```bash
+(
 set -euo pipefail
 IMAGE=ghcr.io/clement-machtelinckx/linter-python-flask
 DIGEST=sha256:d42185600d94df2717e26af1cd98fb360d3790142eeff61421cef601aeffe136
@@ -590,7 +593,10 @@ done
 
 # Deux attestations : authenticité, prédicat normalisé, sujet exact, extraction
 for platform in amd64 arm64; do
-  digest=$(jq -r --arg a "$platform" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $a) | .digest' "$DOSSIER_VERIF/index.json")
+  case "$platform" in
+    amd64) digest=$AMD64 ;;
+    arm64) digest=$ARM64 ;;
+  esac
   cosign verify-attestation "$IMAGE@$digest" --type cyclonedx \
     --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER" \
     | jq -r '.payload' | base64 -d > "$DOSSIER_VERIF/statement-$platform.json"
@@ -600,6 +606,8 @@ for platform in amd64 arm64; do
   jq '.predicate' "$DOSSIER_VERIF/statement-$platform.json" > "$DOSSIER_VERIF/sbom-certifie-$platform.cdx.json"
   jq '[.components[] | select(.type != "file")] | length' "$DOSSIER_VERIF/sbom-certifie-$platform.cdx.json"
 done
+printf 'SBOM certifiés disponibles dans : %s\n' "$DOSSIER_VERIF"
+)
 ```
 
 Résultat : **trois signatures valides**, deux sujets égaux aux digests de leurs manifestes,
@@ -608,5 +616,10 @@ l'artefact de release. Une identité étrangère est rejetée (code 12, T13) ; l
 n'a pas de signature (code 10, T40). Le [job admission](https://github.com/clement-machtelinckx/linter-python-flask/actions/runs/40871325590/job/123440915746)
 effectue indépendamment ces vérifications depuis GHCR et a réussi. Ces résultats ne
 s'appuient pas sur une paire de clés ni sur un registre local de démonstration.
+
+Le rapport T01–T44 reste sur `audit/tp2-conformite-finale` : le commit lié n'est pas
+encore intégré à `main`. Conserver cette branche jusqu'à son intégration par une PR
+documentaire dédiée, à valider en revue ; le permalien fixe la version consultée, mais ne
+garantit pas à lui seul la conservation du commit. Le rapport n'est pas recopié dans cette PR.
 
 [audit-tp2]: https://github.com/clement-machtelinckx/linter-python-flask/blob/d8551c7bbcb51404192e129048413815fd41b4b8/docs/audits/tp2-audit-manuel.md
