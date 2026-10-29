@@ -1,0 +1,8 @@
+# Grype policy for the SBOM audit (TP2 step 2-E): fail on fixable HIGH/CRITICAL,
+# unfixable findings stay visible in the full report, and every exemption is an
+# OpenVEX statement in security.vex.json (auditable, never a silent ignore).
+fail-on-severity: high
+only-fixed: true
+vex-documents:
+  - security.vex.json
+check-for-app-update: false

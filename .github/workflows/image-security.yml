@@ -24,6 +24,8 @@ jobs:
       IMAGE_TAG: flask-security:${{ github.sha }}
       DIVE_VERSION: "0.13.1"
       TRIVY_VERSION: "0.75.0"
+      SYFT_VERSION: "1.42.0"
+      GRYPE_VERSION: "0.108.0"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -56,14 +58,106 @@ jobs:
           curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"
           sha256sum --check --ignore-missing "trivy_${TRIVY_VERSION}_checksums.txt"
           tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "syft_${SYFT_VERSION}_checksums.txt"
+          tar -xzf "syft_${SYFT_VERSION}_linux_amd64.tar.gz" syft
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "grype_${GRYPE_VERSION}_checksums.txt"
+          tar -xzf "grype_${GRYPE_VERSION}_linux_amd64.tar.gz" grype
           echo "$RUNNER_TEMP/image-tools" >> "$GITHUB_PATH"
-          ./dive --version > "$RUNNER_TEMP/image-security/tools.txt"
-          ./trivy --version >> "$RUNNER_TEMP/image-security/tools.txt"
+          { ./dive --version; ./trivy --version; ./syft --version; ./grype --version; } \
+            > "$RUNNER_TEMP/image-security/tools.txt"
+
+      # Automated proof that the tmpfs build secret left no trace: layer history and
+      # metadata, the whole filesystem, and a Trivy secret scan with the dedicated rule.
+      # The positive control proves the rule detects the token, so a clean image is a real result.
+      - name: Build secret leak gate
+        run: |
+          leaks=$({ docker history --no-trunc "$IMAGE_TAG"; docker image inspect "$IMAGE_TAG"; } \
+            | grep -cFf "$RUNNER_TEMP/pip_token" || true)
+          test "$leaks" -eq 0
+          # docker export flattens the final filesystem (no layer tars to unpack, no tar errors to hide).
+          container=$(docker create "$IMAGE_TAG")
+          leaks=$(docker export "$container" | grep -acFf "$RUNNER_TEMP/pip_token" || true)
+          docker rm "$container" > /dev/null
+          test "$leaks" -eq 0
+          mkdir -p "$RUNNER_TEMP/secret-control"
+          cp "$RUNNER_TEMP/pip_token" "$RUNNER_TEMP/secret-control/"
+          # Positive control: the scan must fail AND name our rule, so a clean image is a real result.
+          control=0
+          trivy fs --scanners secret --secret-config .trivy-secret.yaml --exit-code 1 --quiet \
+            "$RUNNER_TEMP/secret-control" > "$RUNNER_TEMP/secret-control.txt" 2>&1 || control=$?
+          if [ "$control" -eq 0 ] || ! grep -q simulated-pip-token "$RUNNER_TEMP/secret-control.txt"; then
+            echo 'Positive control failed: the secret rule does not detect the token'; exit 1
+          fi
+          rm -rf "$RUNNER_TEMP/secret-control" "$RUNNER_TEMP/secret-control.txt"
+          trivy image --scanners secret --secret-config .trivy-secret.yaml --exit-code 1 "$IMAGE_TAG" \
+            2>&1 | tee "$RUNNER_TEMP/image-security/trivy-secret.txt"
+          echo '- Build secret: absent from history, metadata, filesystem and Trivy secret scan' >> "$GITHUB_STEP_SUMMARY"
+
+      # Misconfiguration scan of the Dockerfile (Trivy checks complementary to Hadolint); the legacy
+      # aws/ Terraform is out of scope of the image gate and is not scanned here.
+      - name: Trivy config scan (Dockerfile)
+        run: |
+          trivy config --misconfig-scanners dockerfile --exit-code 1 --severity HIGH,CRITICAL . \
+            2>&1 | tee "$RUNNER_TEMP/image-security/trivy-config.txt"
 
       - name: Dive efficiency gate (at least 80 percent)
         run: |
           CI=true dive "$IMAGE_TAG" --ci-config .dive-ci \
             2>&1 | tee "$RUNNER_TEMP/image-security/dive.txt"
+
+      # Static inventory of the built image (no container is run), both standards at once.
+      - name: Generate SBOM (CycloneDX and SPDX JSON)
+        id: sbom
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.tools.outcome == 'success' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/sbom"
+          syft scan "docker:$IMAGE_TAG" \
+            --source-name "$IMAGE_TAG" \
+            --source-version "$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")" \
+            -o "cyclonedx-json=$RUNNER_TEMP/sbom/sbom.cdx.json" \
+            -o "spdx-json=$RUNNER_TEMP/sbom/sbom.spdx.json"
+          {
+            echo '## SBOM'
+            echo "- CycloneDX packages (files excluded): $(jq '[.components[] | select(.type != "file")] | length' "$RUNNER_TEMP/sbom/sbom.cdx.json")"
+            echo "- SPDX packages: $(jq '.packages | length' "$RUNNER_TEMP/sbom/sbom.spdx.json")"
+            echo "- Licenses: $(jq -r '[.packages[].licenseConcluded] | unique | join(", ")' "$RUNNER_TEMP/sbom/sbom.spdx.json")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload SBOM artifacts
+        if: ${{ steps.sbom.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: ${{ runner.temp }}/sbom/
+          retention-days: 90
+          overwrite: true
+
+      # The SBOM, not the image, is correlated against the vulnerability database.
+      # .grype.yaml holds the policy (fixable HIGH+ blocks, OpenVEX exemptions in security.vex.json).
+      - name: Grype full report on the SBOM (VEX applied, unfixed included)
+        if: ${{ steps.sbom.outcome == 'success' }}
+        # The report must list everything (unfixed too) without failing: override the gate policy here only.
+        env:
+          GRYPE_ONLY_FIXED: "false"
+          GRYPE_FAIL_ON_SEVERITY: ""
+        run: |
+          grype "sbom:$RUNNER_TEMP/sbom/sbom.cdx.json" --output json \
+            --file "$RUNNER_TEMP/image-security/grype-full.json"
+          {
+            echo '## Grype on SBOM'
+            echo "- Matches: $(jq '.matches | length' "$RUNNER_TEMP/image-security/grype-full.json")"
+            echo "- Exempted by OpenVEX (not_affected): $(jq '[.ignoredMatches[] | select(.appliedIgnoreRules[].namespace == "vex")] | length' "$RUNNER_TEMP/image-security/grype-full.json")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Grype gate on the SBOM (fixable HIGH and CRITICAL, VEX applied)
+        if: ${{ steps.sbom.outcome == 'success' }}
+        run: |
+          grype "sbom:$RUNNER_TEMP/sbom/sbom.cdx.json" --output table \
+            2>&1 | tee "$RUNNER_TEMP/image-security/grype-gate.txt"
 
       - name: Trivy full report (including unfixed vulnerabilities)
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.tools.outcome == 'success' }}
@@ -79,8 +173,8 @@ jobs:
             --ignore-unfixed --exit-code 1 "$IMAGE_TAG" \
             2>&1 | tee "$RUNNER_TEMP/image-security/trivy-gate.txt"
 
-      # TASK-012 must load this image after all checks for this SHA have passed.
-      - name: Export the validated image for TASK-012
+      # The integration job (multi-container.yml) loads this exact image once every check above passed.
+      - name: Export the validated image for the integration job
         run: |
           mkdir -p "$RUNNER_TEMP/validated-image"
           docker image save --output "$RUNNER_TEMP/validated-image/image.tar" "$IMAGE_TAG"
